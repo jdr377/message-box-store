@@ -1,0 +1,16 @@
+{
+  "name": "message-box-store",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Application-independent encrypted message history storage for Message Box clients.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "README.md",
+    "ADR-001-durable-history.md",
+    "PRD.md"
+  ],
+  "license": "UNLICENSED"
+}
