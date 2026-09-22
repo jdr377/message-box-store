@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "domain": "message-box-store:record:v1",
+  "encoding": "each field is 4-byte big-endian length + UTF-8 bytes, SHA-256 over concatenation in order [domain, ownerIdentityKey, direction, messageBox, sender, recipient, messageId]; bodyHash is SHA-256 over exact UTF-8 body bytes",
+  "vectors": [
+    {
+      "name": "m0-vector-1",
+      "ownerIdentityKey": "021111111111111111111111111111111111111111111111111111111111111111",
+      "direction": "outbound",
+      "messageBox": "general_inbox",
+      "sender": "021111111111111111111111111111111111111111111111111111111111111111",
+      "recipient": "032222222222222222222222222222222222222222222222222222222222222222",
+      "messageId": "m0-vector-1",
+      "body": "{\"encryptedMessage\":\"AQ==\"}",
+      "bodyHash": "0084794ecc214b1345494cd74a5758785b703aa54b89b1ff36b5087dc65ff8ce",
+      "recordKey": "998e052031cfb45d304b54db7bb55abb56c69d2612567bd9eb563229073acbfe"
+    },
+    {
+      "name": "inbound-basic",
+      "ownerIdentityKey": "032222222222222222222222222222222222222222222222222222222222222222",
+      "direction": "inbound",
+      "messageBox": "inbox",
+      "sender": "021111111111111111111111111111111111111111111111111111111111111111",
+      "recipient": "032222222222222222222222222222222222222222222222222222222222222222",
+      "messageId": "m0-vector-1",
+      "body": "{\"encryptedMessage\":\"AQI=\"}",
+      "bodyHash": "188aa6f09d1206647bd91a81c7e162c768eca1aa3281b6dbf046bc2ca9dc55f2",
+      "recordKey": "f0a82c6cc0e732fd75618a20cb3668a39eb58ebceb7399efbe166ad6e4fdf518"
+    },
+    {
+      "name": "multibyte-message-id",
+      "ownerIdentityKey": "021111111111111111111111111111111111111111111111111111111111111111",
+      "direction": "outbound",
+      "messageBox": "general_inbox",
+      "sender": "021111111111111111111111111111111111111111111111111111111111111111",
+      "recipient": "032222222222222222222222222222222222222222222222222222222222222222",
+      "messageId": "msg-αβγ-🔑-end",
+      "body": "{\"encryptedMessage\":\"Ag==\"}",
+      "bodyHash": "3c8eabd6ced2307afcf79c284c4b2c059cb41fa61073790f8cf4b93b324537bf",
+      "recordKey": "535eef69f26e11da089e3c481bee41c375733955075c7a2a76ae160436739ce7"
+    },
+    {
+      "name": "spaced-body-exact-bytes",
+      "ownerIdentityKey": "021111111111111111111111111111111111111111111111111111111111111111",
+      "direction": "outbound",
+      "messageBox": "general_inbox",
+      "sender": "021111111111111111111111111111111111111111111111111111111111111111",
+      "recipient": "032222222222222222222222222222222222222222222222222222222222222222",
+      "messageId": "m0-vector-1",
+      "body": "{ \"encryptedMessage\" : \"AQ==\" }",
+      "bodyHash": "ccf56e8d56cdca9d9012db7e099075e43b20d8fc1cc5dfe38bd63ced454a059c",
+      "recordKey": "998e052031cfb45d304b54db7bb55abb56c69d2612567bd9eb563229073acbfe"
+    },
+    {
+      "name": "third-owner-binding",
+      "ownerIdentityKey": "03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "direction": "outbound",
+      "messageBox": "general_inbox",
+      "sender": "03aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "recipient": "021111111111111111111111111111111111111111111111111111111111111111",
+      "messageId": "m0-vector-1",
+      "body": "{\"encryptedMessage\":\"AQ==\"}",
+      "bodyHash": "0084794ecc214b1345494cd74a5758785b703aa54b89b1ff36b5087dc65ff8ce",
+      "recordKey": "83c67643a1d99fb87f72dc2f2953202c1a82f2253fd7276bc203a503beec122f"
+    }
+  ]
+}

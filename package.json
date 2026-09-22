@@ -4,13 +4,104 @@
   "private": true,
   "description": "Application-independent encrypted message history storage for Message Box clients.",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/mod.d.ts",
+      "browser": "./dist/mod.js",
+      "import": "./dist/mod.js",
+      "require": "./dist/mod.cjs",
+      "default": "./dist/mod.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "browser": "./dist/protocol.js",
+      "import": "./dist/protocol.js",
+      "require": "./dist/protocol.cjs",
+      "default": "./dist/protocol.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "browser": "./dist/client.js",
+      "import": "./dist/client.js",
+      "require": "./dist/client.cjs",
+      "default": "./dist/client.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.cjs",
+      "default": "./dist/server.js"
+    },
+    "./storage": {
+      "types": "./dist/storage.d.ts",
+      "import": "./dist/storage.js",
+      "require": "./dist/storage.cjs",
+      "default": "./dist/storage.js"
+    },
+    "./canonical": {
+      "types": "./dist/canonical.d.ts",
+      "browser": "./dist/canonical.js",
+      "import": "./dist/canonical.js",
+      "require": "./dist/canonical.cjs",
+      "default": "./dist/canonical.js"
+    },
+    "./repository": "./src/repository.mjs",
+    "./repository.sqlite": "./src/repository.sqlite.mjs",
+    "./repository.mysql": "./src/repository.mysql.mjs",
+    "./snapshots": "./src/snapshots.mjs",
+    "./feeds": "./src/feeds.mjs",
+    "./migrations": "./src/migrations.mjs"
+  },
   "engines": {
     "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "lint": "node scripts/lint.mjs",
+    "test": "node scripts/run-tests.mjs all tests/*.test.mjs",
+    "test:m0": "node --test tests/m0-*.test.mjs",
+    "test:m1": "node scripts/run-tests.mjs m1 tests/m1-*.test.mjs",
+    "test:m1:mysql": "node --test --test-concurrency=1 tests/m1-feeds.test.mjs tests/m1-idempotency.test.mjs tests/m1-protocol-conformance.test.mjs tests/m1-repository.mysql.test.mjs tests/m1-snapshot-binding.test.mjs tests/m1-snapshots.test.mjs",
+    "test:pack": "node scripts/pack-verify.mjs"
+  },
+  "dependencies": {
+    "@bsv/auth-express-middleware": "2.2.3",
+    "@bsv/message-box-client": "2.5.1",
+    "@bsv/sdk": "2.7.1",
+    "express": "5.2.1"
+  },
+  "peerDependencies": {
+    "knex": "^3.3.0",
+    "mysql2": "^3.11.0"
+  },
+  "peerDependenciesMeta": {
+    "knex": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    }
   },
   "files": [
     "README.md",
     "ADR-001-durable-history.md",
-    "PRD.md"
+    "PRD.md",
+    "mod.ts",
+    "src/*.ts",
+    "src",
+    "dist",
+    "docs"
   ],
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@bsv/authsocket": "2.1.7",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "dotenv": "^18.0.1",
+    "knex": "^3.3.0",
+    "mysql2": "^3.11.0",
+    "tsdown": "0.18.0",
+    "typescript": "5.9.3"
+  }
 }
