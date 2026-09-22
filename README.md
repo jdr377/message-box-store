@@ -188,6 +188,8 @@ if (!archived.committed) throw new Error('archive was not confirmed')
   its compatibility boundaries without assigning an unauthorized version.
 - [Upgrade, compatibility, and rollback](./docs/UPGRADING.md) defines consumer
   and operator preflight, forward migration, cache recovery, and rollback.
+- [Third-party notices](./THIRD_PARTY_NOTICES.md) inventories direct runtime and
+  supported optional-peer licenses without selecting this package's license.
 
 ## Product intent and implementation alignment
 

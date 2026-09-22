@@ -91,6 +91,7 @@
   "files": [
     "README.md",
     "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md",
     "ADR-001-durable-history.md",
     "PRD.md",
     "mod.ts",

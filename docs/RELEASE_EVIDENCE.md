@@ -49,7 +49,8 @@ The currently installed direct dependency/license inventory is:
 | `mysql2` (optional peer) | `^3.11.0` | MIT |
 
 This inventory is evidence, not legal approval. The three BSV dependency license
-texts and the package's own license still require an authorized licensing decision.
+texts and the MIT dependency notices are reproduced in `THIRD_PARTY_NOTICES.md`.
+The package's own license and the release owner's legal approval remain open.
 
 ## Gates that remain open
 
@@ -59,9 +60,9 @@ texts and the package's own license still require an authorized licensing decisi
   approved. Current limit and saturation tests prove bounded behavior, not a
   production throughput promise.
 - The changelog and upgrade/compatibility/rollback guidance exist for the private
-  `0.0.0` baseline. Their final versioned release notes, package license,
-  third-party notices, registry scope, maintainer ownership, and SemVer must be
-  approved and finalized.
+  `0.0.0` baseline, and the direct-dependency notice inventory is packaged.
+  Their final versioned release notes, package license, legal notice approval,
+  registry scope, maintainer ownership, and SemVer must be approved and finalized.
 - An immutable release-candidate tarball and digest must be created only after
   the manifest/version/license decisions. Publishing and deployment require
   separate explicit authorization.

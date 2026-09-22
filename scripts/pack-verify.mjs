@@ -71,6 +71,7 @@ function assertArtifactInventory(metadata) {
     'package.json',
     'README.md',
     'CHANGELOG.md',
+    'THIRD_PARTY_NOTICES.md',
     'ADR-001-durable-history.md',
     'PRD.md',
     'docs/RUNBOOK.md',
@@ -81,6 +82,26 @@ function assertArtifactInventory(metadata) {
     'src/restore-recovery.mjs',
   ]) {
     if (!paths.includes(required)) fail(`required packed artifact file is missing: ${required}`)
+  }
+}
+
+function assertThirdPartyNotices(packageRoot) {
+  const noticePath = join(packageRoot, 'THIRD_PARTY_NOTICES.md')
+  const notice = readFileSync(noticePath, 'utf8')
+  const declared = {
+    ...(packageJson.dependencies ?? {}),
+    ...(packageJson.optionalDependencies ?? {}),
+    ...(packageJson.peerDependencies ?? {}),
+  }
+  for (const [name, range] of Object.entries(declared)) {
+    const installedManifestPath = join(root, 'node_modules', ...name.split('/'), 'package.json')
+    if (!existsSync(installedManifestPath)) fail(`notice dependency is not installed: ${name}`)
+    const installed = JSON.parse(readFileSync(installedManifestPath, 'utf8'))
+    for (const expected of [name, range, installed.version, installed.license]) {
+      if (typeof expected !== 'string' || !notice.includes(`\`${expected}\``)) {
+        fail(`third-party notice omits ${name} value: ${String(expected)}`)
+      }
+    }
   }
 }
 
@@ -165,6 +186,7 @@ function main() {
     if (packedPackageJson.name !== packageJson.name) fail('packed package name changed')
     if (packedPackageJson.version !== packageJson.version) fail('packed package version changed')
     if (packedPackageJson.private !== true) fail('package-private boundary changed')
+    assertThirdPartyNotices(packedRoot)
     if (existsSync(join(packedRoot, '.env'))) fail('secret .env was included in package artifact')
     if (!existsSync(join(packedRoot, 'examples', 'private-history.ts'))) fail('private history example was not included in package artifact')
     renameSync(packedRoot, join(consumerRoot, 'node_modules', packageJson.name))
