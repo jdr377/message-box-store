@@ -38,6 +38,12 @@ async function harness(t, archiveMode = 'normal') {
   let archiveCalls = 0
   const store = new Proxy(inner, {
     get(target, property) {
+      if (property === 'listChangesPage' && archiveMode === 'malformedPage') {
+        return async (args) => {
+          const page = await target.listChangesPage(args)
+          return { ...page, records: [{ recordKey: 'ab'.repeat(32), sequence: '1' }] }
+        }
+      }
       if (property === 'archiveBatch') {
         return async (args) => {
           archiveCalls += 1
@@ -98,6 +104,15 @@ test('M3.5 client calls every authenticated history operation with explicit epoc
   const changes = await h.client.listChanges({ direction: 'outbound', limit: 1 })
   assert.equal(changes.records.length, 1)
 
+  const resumedEmpty = await h.client.listChanges({ direction: 'outbound', afterSequence: snapshot.watermark, epoch: snapshot.epoch })
+  assert.deepEqual(resumedEmpty.records, [])
+  assert.equal(resumedEmpty.checkpoint, snapshot.watermark)
+  assert.throws(() => h.client.listChanges({ afterSequence: snapshot.watermark }), (error) => error?.code === 'ERR_INVALID_RECORD')
+  assert.throws(
+    () => h.client.listChanges({ cursor: 'opaque', afterSequence: snapshot.watermark, epoch: snapshot.epoch }),
+    (error) => error?.code === 'ERR_INVALID_RECORD',
+  )
+
   const patched = await h.client.patchState({
     recordKey,
     newState: 'accepted',
@@ -140,6 +155,14 @@ test('M3.5 malformed and lost archive responses remain unconfirmed and are never
     assert.equal(h.archiveCalls, 1, 'an ambiguous mutation is not retried')
     assert.equal((await h.store.getUsage({ owner: h.owner })).recordCount, 1, 'the test proves commit can precede a lost response')
   })
+})
+
+test('M3 history client rejects malformed page members before reconciliation can persist them', async (t) => {
+  const h = await harness(t, 'malformedPage')
+  await assert.rejects(
+    h.client.listChanges(),
+    (error) => error?.code === 'ERR_INTERNAL' && /malformed/.test(error.message),
+  )
 })
 
 test('M3.5 client keeps host authority explicit and refuses authenticated 402 payment', async (t) => {

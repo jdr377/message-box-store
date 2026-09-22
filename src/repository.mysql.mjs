@@ -1044,7 +1044,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
     return { items, nextAfter: items.length === bounded && last ? { createdAt: last.createdAt, recordKey: last.recordKey } : null }
   }
 
-  async function listChangesPage({ owner, serverSecret, cursor = null, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {
+  async function listChangesPage({ owner, serverSecret, cursor = null, afterSequence, expectedEpoch, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {
     validateFeedOwner(owner)
     validateServerSecret(serverSecret)
     validateSnapshotFilter(filter)
@@ -1056,7 +1056,33 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
     let W
     let C
     let epoch
-    if (cursor === null || cursor === undefined) {
+    if ((afterSequence === undefined) !== (expectedEpoch === undefined)) {
+      const e = new Error('afterSequence and expectedEpoch must be supplied together')
+      e.code = 'ERR_INVALID_CURSOR'
+      throw e
+    }
+    const explicitCheckpoint = afterSequence !== undefined
+    if (explicitCheckpoint && cursor !== null && cursor !== undefined) {
+      const e = new Error('cursor and checkpoint mode are mutually exclusive')
+      e.code = 'ERR_INVALID_CURSOR'
+      throw e
+    }
+    if (explicitCheckpoint) {
+      validateChangesPosition(afterSequence)
+      if (expectedEpoch !== usage.epoch) {
+        const e = new Error('epoch changed; take a full snapshot')
+        e.code = 'ERR_EPOCH_CHANGED'
+        throw e
+      }
+      W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
+      C = afterSequence
+      epoch = usage.epoch
+      if (BigInt(C) > BigInt(W)) {
+        const e = new Error('checkpoint is beyond the current watermark')
+        e.code = 'ERR_INVALID_CURSOR'
+        throw e
+      }
+    } else if (cursor === null || cursor === undefined) {
       W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
       C = FEED_START
       epoch = usage.epoch
@@ -1074,7 +1100,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       throw e
     }
     const earliest = await earliestChangeSequenceMysql(owner)
-    if (C !== FEED_START) {
+    if (C !== FEED_START || explicitCheckpoint) {
       assertNoRetentionGap({ position: C, earliest })
       if (earliest === null && C !== W) {
         const e = new Error('cursor outside retained history; take a full snapshot')
@@ -1093,7 +1119,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
         WHERE c.owner_identity_key = ? AND c.change_sequence > ? AND c.change_sequence <= ? ORDER BY c.change_sequence LIMIT ${bounded}`,
       [owner, C, W],
     ))[0]
-    assertNoInternalRetentionGap({ position: C, watermark: W, sequences: rows.map((r) => String(r.change_sequence)), bounded })
+    assertNoInternalRetentionGap({ position: C, watermark: W, sequences: rows.map((r) => String(r.change_sequence)), bounded, explicitCheckpoint })
     if (rows.length === 0) {
       return { records: [], nextCursor: null, checkpoint: W, hasMore: false, watermark: W, epoch, serverTime }
     }

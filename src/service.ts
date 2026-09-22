@@ -1443,7 +1443,7 @@ const SNAPSHOT_ID_RE = /^snap_[0-9a-f]{32}$/
  */
 const CANONICAL_TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/
 const BROWSE_QUERY_KEYS = new Set(['direction', 'messageBox', 'participant', 'limit', 'afterCreatedAt', 'afterRecordKey'])
-const CHANGES_QUERY_KEYS = new Set(['cursor', 'limit', 'direction', 'messageBox', 'participant'])
+const CHANGES_QUERY_KEYS = new Set(['cursor', 'afterSequence', 'epoch', 'limit', 'direction', 'messageBox', 'participant'])
 const SNAPSHOT_PAGE_QUERY_KEYS = new Set(['snapshotId', 'cursor', 'limit'])
 const SNAPSHOT_CREATE_ALLOWED_KEYS = new Set(['filter'])
 const SNAPSHOT_FILTER_ALLOWED_KEYS = new Set(['direction', 'messageBox', 'participant'])
@@ -1551,6 +1551,8 @@ export function validateBrowseQuery(query: unknown): {
  */
 export function validateChangesQuery(query: unknown): {
   cursor: string | null
+  afterSequence: string | undefined
+  expectedEpoch: string | undefined
   limit: number | undefined
   filter: { direction?: string; messageBox?: string; participant?: string }
 } {
@@ -1560,7 +1562,23 @@ export function validateChangesQuery(query: unknown): {
   }
   const record = query as Record<string, unknown>
   const filter = extractFeedFilter(record)
-  return { cursor: parseCursorParam(record['cursor']), limit: parseLimitParam(record['limit']), filter }
+  const cursor = parseCursorParam(record['cursor'])
+  const rawAfterSequence = record['afterSequence']
+  const rawEpoch = record['epoch']
+  if ((rawAfterSequence === undefined) !== (rawEpoch === undefined)) {
+    throw invalidError('afterSequence and epoch must be supplied together')
+  }
+  let afterSequence: string | undefined
+  let expectedEpoch: string | undefined
+  if (rawAfterSequence !== undefined) {
+    if (cursor !== null) throw invalidError('cursor and checkpoint mode are mutually exclusive')
+    if (typeof rawAfterSequence !== 'string' || !isUint64DecimalString(rawAfterSequence)) {
+      throw invalidError('afterSequence must be a canonical uint64 decimal string')
+    }
+    afterSequence = rawAfterSequence
+    expectedEpoch = validateEpochShape(rawEpoch)
+  }
+  return { cursor, afterSequence, expectedEpoch, limit: parseLimitParam(record['limit']), filter }
 }
 
 /** Validate a snapshotId query/body value (snap_ + 32 lowercase hex). */
@@ -2710,13 +2728,15 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     try {
       const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
       assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { cursor, limit, filter } = validateChangesQuery(req.query)
+      const { cursor, afterSequence, expectedEpoch, limit, filter } = validateChangesQuery(req.query)
       const repository = requireRepository()
       const serverSecret = requireServerSecret()
       const page = await repository.listChangesPage({
         owner: ownerIdentityKey,
         serverSecret,
         cursor,
+        ...(afterSequence === undefined ? {} : { afterSequence }),
+        ...(expectedEpoch === undefined ? {} : { expectedEpoch }),
         ...(limit === undefined ? {} : { limit }),
         filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
       })

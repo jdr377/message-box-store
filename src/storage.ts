@@ -51,6 +51,8 @@ export interface ChangesPageOptions {
   owner: string
   serverSecret: string
   cursor?: string | null
+  afterSequence?: string
+  expectedEpoch?: string
   limit?: number
   filter?: SnapshotFilter
   nowSeconds?: number

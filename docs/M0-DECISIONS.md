@@ -284,6 +284,16 @@ or modified by a client fails as `ERR_INVALID_CURSOR` without revealing
 whether another owner's cursor or records exist. Expired but otherwise valid
 cursors return `ERR_CURSOR_EXPIRED` and require full snapshot reconciliation.
 
+The additive checkpoint handoff does not expose the cursor HMAC secret.
+`GET /v1/history/changes` accepts paired
+`afterSequence=<canonical uint64>` and `epoch=<current owner epoch>` query
+parameters to start a new fixed-watermark pass after a completed snapshot or
+terminal changes page. The pair is mutually exclusive with `cursor`; returned
+opaque cursors alone continue that pass. Authentication remains the owner
+selector. Half-pairs, future positions, epoch mismatch, and retained-range
+gaps—including after explicit checkpoint `0`—fail closed rather than claiming
+replica completeness.
+
 ## Decisions deferred beyond v1
 
 The v1 implementation does not support identity rotation, cross-key history

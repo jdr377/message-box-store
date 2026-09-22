@@ -165,6 +165,62 @@ test('M1 .2.4 interleaved commits produce no gaps/duplicates; snapshots do not d
   }
 })
 
+test('M3 .4.7 persisted checkpoints start new fixed-watermark passes across adapters', async (t) => {
+  for (const store of Object.values(await makeStores(t))) {
+    await store.deleteAll({ owner: OWNER }).catch(() => {})
+    await seed(store, OWNER, ['resume-1', 'resume-2'])
+    const snapshot = await store.createSnapshot({ owner: OWNER })
+    const epoch = snapshot.epoch
+    assert.equal(snapshot.watermark, '2')
+
+    await seed(store, OWNER, ['resume-3'])
+    const first = await store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: snapshot.watermark, expectedEpoch: epoch, limit: 1 })
+    assert.equal(first.watermark, '3')
+    assert.deepEqual(first.records.map((row) => row.messageId), ['resume-3'])
+    assert.equal(first.checkpoint, '3')
+
+    await seed(store, OWNER, ['resume-4'])
+    const second = await store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: first.checkpoint, expectedEpoch: epoch, limit: 1 })
+    assert.equal(second.watermark, '4', 'a new checkpoint pass chooses a fresh watermark')
+    assert.deepEqual(second.records.map((row) => row.messageId), ['resume-4'])
+    const empty = await store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: second.checkpoint, expectedEpoch: epoch })
+    assert.deepEqual(empty.records, [])
+    assert.equal(empty.checkpoint, '4')
+    assert.equal(empty.watermark, '4')
+
+    await assert.rejects(async () => store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: '4' }), (error) => error?.code === 'ERR_INVALID_CURSOR')
+    await assert.rejects(async () => store.listChangesPage({ owner: OWNER, serverSecret: SECRET, expectedEpoch: epoch }), (error) => error?.code === 'ERR_INVALID_CURSOR')
+    await assert.rejects(async () => store.listChangesPage({ owner: OWNER, serverSecret: SECRET, cursor: 'opaque', afterSequence: '4', expectedEpoch: epoch }), (error) => error?.code === 'ERR_INVALID_CURSOR')
+    await assert.rejects(async () => store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: '18446744073709551615', expectedEpoch: epoch }), (error) => error?.code === 'ERR_INVALID_CURSOR')
+    await assert.rejects(async () => store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: '4', expectedEpoch: 'gen-stale' }), (error) => error?.code === 'ERR_EPOCH_CHANGED')
+    await store.deleteAll({ owner: OWNER }).catch(() => {})
+  }
+})
+
+test('M3 .4.7 explicit checkpoint zero expires when retained history has a gap', async (t) => {
+  for (const store of Object.values(await makeStores(t))) {
+    await store.deleteAll({ owner: OWNER }).catch(() => {})
+    await seed(store, OWNER, ['resume-gap-1'])
+    const key = (await store.listBrowse({ owner: OWNER })).items[0].recordKey
+    await store.deleteRecord({ owner: OWNER, recordKey: key })
+    const epoch = (await store.getUsage({ owner: OWNER })).epoch
+    const old = '2020-01-01T00:00:00.000Z'
+    if (store._debug) {
+      for (const change of store._debug.changes.get(OWNER) ?? []) change.createdAt = old
+    } else {
+      store.db.prepare('UPDATE history_changes SET created_at = ? WHERE owner_identity_key = ?').run(old, OWNER)
+    }
+    await store.purgeExpiredChanges({ owner: OWNER, nowIso: new Date().toISOString() })
+    await assert.rejects(
+      async () => store.listChangesPage({ owner: OWNER, serverSecret: SECRET, afterSequence: '0', expectedEpoch: epoch }),
+      (error) => error?.code === 'ERR_CURSOR_EXPIRED',
+    )
+    const uncheckpointed = await store.listChangesPage({ owner: OWNER, serverSecret: SECRET })
+    assert.equal(uncheckpointed.checkpoint, uncheckpointed.watermark, 'legacy fresh scan behavior remains compatible')
+    await store.deleteAll({ owner: OWNER }).catch(() => {})
+  }
+})
+
 test('M1 .2.4 cursors distinguish tampering from expiry; misuse rejected', async (t) => {
   for (const store of Object.values(await makeStores(t))) {
     await store.deleteAll({ owner: OWNER }).catch(() => {})
@@ -485,6 +541,9 @@ test('M1 .2.4 live MySQL feed parity (gated)', { skip: !MYSQL_ENABLED ? 'set MES
     ],
   })
   assert.ok(archived.outcomes.every((o) => o.outcome === 'stored'))
+  const fromExplicitZero = await store.listChangesPage({ owner: MOWNER, serverSecret: SECRET, afterSequence: '0', expectedEpoch: epoch })
+  assert.equal(fromExplicitZero.records.length, 2)
+  assert.equal(fromExplicitZero.checkpoint, fromExplicitZero.watermark)
   // Fixed-W drain with limit 1: no gaps/duplicates.
   const seen = []
   let cursor = null
@@ -507,13 +566,27 @@ test('M1 .2.4 live MySQL feed parity (gated)', { skip: !MYSQL_ENABLED ? 'set MES
   const sp = await store.listSnapshotPage({ owner: MOWNER, serverSecret: SECRET, snapshotId: snap.snapshotId })
   assert.equal(sp.records.length, 2)
   assert.equal(sp.checkpoint, sp.watermark)
+  const checkpointEmpty = await store.listChangesPage({ owner: MOWNER, serverSecret: SECRET, afterSequence: snap.watermark, expectedEpoch: snap.epoch })
+  assert.deepEqual(checkpointEmpty.records, [])
+  assert.equal(checkpointEmpty.checkpoint, snap.watermark)
   // Deletion converges via delete event; snapshot invalidates.
   await store.deleteRecord({ owner: MOWNER, recordKey: sp.records[0].recordKey })
+  const resumed = await store.listChangesPage({ owner: MOWNER, serverSecret: SECRET, afterSequence: snap.watermark, expectedEpoch: snap.epoch })
+  assert.ok(resumed.records.some((r) => r.recordKey === sp.records[0].recordKey && !('body' in r)))
+  await assert.rejects(
+    async () => store.listChangesPage({ owner: MOWNER, serverSecret: SECRET, afterSequence: resumed.watermark, expectedEpoch: 'gen-stale' }),
+    (error) => error?.code === 'ERR_EPOCH_CHANGED',
+  )
   const after = await store.listChangesPage({ owner: MOWNER, serverSecret: SECRET, limit: 100 })
   assert.ok(after.records.some((r) => r.recordKey === sp.records[0].recordKey && !('body' in r)))
   await assert.rejects(async () => store.listSnapshotPage({ owner: MOWNER, serverSecret: SECRET, snapshotId: snap.snapshotId }), (e) => e?.code === 'ERR_CURSOR_EXPIRED')
   const stats = await store.getStorageStats({ owner: MOWNER })
   assert.ok(stats.physical.changeCount > stats.live.recordCount)
+  await knex.raw('DELETE FROM history_changes WHERE owner_identity_key = ?', [MOWNER])
+  await assert.rejects(
+    async () => store.listChangesPage({ owner: MOWNER, serverSecret: SECRET, afterSequence: '0', expectedEpoch: epoch }),
+    (error) => error?.code === 'ERR_CURSOR_EXPIRED',
+  )
   await store.deleteAll({ owner: MOWNER })
 })
 

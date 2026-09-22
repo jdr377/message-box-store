@@ -902,7 +902,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
    * Authoritative changes in (C,W] with HMAC cursors. See memory adapter for
    * the convergence contract (fixed W, sequence order, early deletes).
    */
-  function listChangesPage({ owner, serverSecret, cursor = null, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {
+  function listChangesPage({ owner, serverSecret, cursor = null, afterSequence, expectedEpoch, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {
     validateFeedOwner(owner)
     validateServerSecret(serverSecret)
     validateSnapshotFilter(filter)
@@ -914,7 +914,33 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
     let W
     let C
     let epoch
-    if (cursor === null || cursor === undefined) {
+    if ((afterSequence === undefined) !== (expectedEpoch === undefined)) {
+      const e = new Error('afterSequence and expectedEpoch must be supplied together')
+      e.code = 'ERR_INVALID_CURSOR'
+      throw e
+    }
+    const explicitCheckpoint = afterSequence !== undefined
+    if (explicitCheckpoint && cursor !== null && cursor !== undefined) {
+      const e = new Error('cursor and checkpoint mode are mutually exclusive')
+      e.code = 'ERR_INVALID_CURSOR'
+      throw e
+    }
+    if (explicitCheckpoint) {
+      validateChangesPosition(afterSequence)
+      if (expectedEpoch !== usage.epoch) {
+        const e = new Error('epoch changed; take a full snapshot')
+        e.code = 'ERR_EPOCH_CHANGED'
+        throw e
+      }
+      W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
+      C = afterSequence
+      epoch = usage.epoch
+      if (BigInt(C) > BigInt(W)) {
+        const e = new Error('checkpoint is beyond the current watermark')
+        e.code = 'ERR_INVALID_CURSOR'
+        throw e
+      }
+    } else if (cursor === null || cursor === undefined) {
       W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
       C = FEED_START
       epoch = usage.epoch
@@ -932,7 +958,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
       throw e
     }
     const earliest = earliestChangeSequence(owner)
-    if (C !== FEED_START) {
+    if (C !== FEED_START || explicitCheckpoint) {
       assertNoRetentionGap({ position: C, earliest })
       if (earliest === null && C !== W) {
         const e = new Error('cursor outside retained history; take a full snapshot')
@@ -942,7 +968,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
     }
     const ordered = allChangesOrdered(owner).filter((c) => BigInt(String(c.sequence)) > BigInt(C) && BigInt(String(c.sequence)) <= BigInt(W))
     const scanned = ordered.slice(0, bounded)
-    assertNoInternalRetentionGap({ position: C, watermark: W, sequences: scanned.map((c) => String(c.sequence)), bounded })
+    assertNoInternalRetentionGap({ position: C, watermark: W, sequences: scanned.map((c) => String(c.sequence)), bounded, explicitCheckpoint })
     if (scanned.length === 0) {
       return { records: [], nextCursor: null, checkpoint: W, hasMore: false, watermark: W, epoch, serverTime }
     }

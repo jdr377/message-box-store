@@ -423,8 +423,10 @@ interface HistoryPage<T> {
 
 The sync algorithm is:
 
-1. With a complete local snapshot, request changes after checkpoint C and
-   capture committed watermark W; all continuations are restricted to `(C,W]`.
+1. With a complete local snapshot, start a new changes pass using paired
+   `afterSequence=C` and `epoch=<snapshot epoch>` query parameters. Capture
+   committed watermark W; all opaque-cursor continuations are restricted to
+   `(C,W]`. A later terminal checkpoint starts the next pass the same way.
 2. Apply each immutable record idempotently by `recordKey`.
 3. Apply upserts and delete events in sequence order; delete events remove local
    rows and carry no message body.
@@ -443,7 +445,12 @@ is insufficient. Snapshot expiry requires restart; privacy deletion may
 invalidate snapshots instead of continuing to serve deleted bodies. Cursors
 are integrity-protected and bound to owner, epoch, feed, filters, W, position,
 and expiry. Tampered cursors are invalid-input errors, not expired cursors.
-Filtered caches track coverage/checkpoints separately. Response-byte limits
+The explicit checkpoint pair is mutually exclusive with a cursor. It is a
+position claim, not a client-mintable cursor or completeness proof. The server
+validates canonical uint64 shape, current epoch, `C <= W`, and retained-range
+continuity even when `C` is `0`; any retained prefix, internal, or tail gap
+requires a complete snapshot. Filtered caches track coverage/checkpoints
+separately. Response-byte limits
 include JSON overhead: every allowed record must fit a page or yield a typed
 error, never an empty continuation loop.
 

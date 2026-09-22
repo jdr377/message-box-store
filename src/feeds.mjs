@@ -122,15 +122,16 @@ export function assertNoRetentionGap({ position, earliest }) {
  * Internal retention-gap expiry (mbs-8g5.2.4.4): purged sequences inside the
  * unapplied range (C,W] must also force a snapshot resync, not silent
  * advancement. Fresh starts (C=0) never expire; they return available
- * retained history. Continuations require the retained rows in (C,W] to be
+ * retained history. Continuations and explicit persisted checkpoints require
+ * the retained rows in (C,W] to be
  * contiguous from C+1. `sequences` are the retained change_sequences in range
  * order (pre-filter, as stored). `bounded` is the page limit: when the fetch
  * filled the page, the tail beyond the window is checked on the next
  * continuation; when the fetch exhausted retained rows, the last sequence
  * must be W or the tail was purged.
  */
-export function assertNoInternalRetentionGap({ position, watermark, sequences, bounded }) {
-  if (position === FEED_START) return
+export function assertNoInternalRetentionGap({ position, watermark, sequences, bounded, explicitCheckpoint = false }) {
+  if (position === FEED_START && !explicitCheckpoint) return
   const w = BigInt(watermark)
   const c = BigInt(position)
   if (c === w) {

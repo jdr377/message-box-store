@@ -44,6 +44,8 @@ export {
   sendPreparedHttpOnce,
 } from './src/outbound-runtime.js'
 export { assertCompatibleCapabilities, MessageBoxStoreClient, MessageBoxStoreClientError } from './src/client.js'
+export { normalizeReplicaFilter, ReplicaSyncError, syncHistory } from './src/replica.js'
+export { MessageBoxArchiveWorker } from './src/worker.js'
 export { syncPending } from './src/inbound.js'
 export { sendOutboundOnce } from './src/outbound.js'
 export type {
@@ -89,7 +91,6 @@ export type {
   Usage,
 } from './src/protocol.js'
 export type {
-  ArchiveWorkerOptions,
   DeleteAllOptions,
   DeleteRecordOptions,
   HistoryChangesOptions,
@@ -97,6 +98,25 @@ export type {
   MessageBoxStoreClientOptions,
   PatchStateOptions,
   SnapshotPageOptions,
-  SyncOnceOptions,
   WalletInterface,
 } from './src/client.js'
+export type {
+  HistoryReplicaClient,
+  SyncHistoryOptions,
+  SyncHistoryResult,
+} from './src/replica.js'
+export type { ArchiveWorkerOptions, SyncOnceOptions } from './src/worker.js'
+export type {
+  ApplyReplicaIncrementalPage,
+  BeginReplicaSnapshot,
+  CommitReplicaSnapshot,
+  LocalReplica,
+  ReplicaContinuation,
+  ReplicaCoverage,
+  ReplicaExpectedVersion,
+  ReplicaFilter,
+  ReplicaScope,
+  ReplicaSnapshotRef,
+  ReplicaVersion,
+  StageReplicaSnapshotPage,
+} from './src/replica-store.js'

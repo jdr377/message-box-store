@@ -81,6 +81,10 @@ export {
   PAID_TRANSPORT_UNSUPPORTED_CODE,
   sendPreparedHttpOnce,
 } from './outbound-runtime.js'
+export { normalizeReplicaFilter, ReplicaSyncError, syncHistory } from './replica.js'
+export type { HistoryReplicaClient, SyncHistoryOptions, SyncHistoryResult } from './replica.js'
+export { MessageBoxArchiveWorker } from './worker.js'
+export type { ArchiveWorkerOptions, SyncOnceOptions } from './worker.js'
 export type {
   FreeOnlyMessageBoxClient,
   MessageBoxHttpSendCapability,
@@ -113,6 +117,8 @@ export interface HistoryChangesOptions {
   participant?: string
   limit?: number
   cursor?: string | null
+  afterSequence?: string
+  epoch?: string
 }
 
 export interface SnapshotPageOptions {
@@ -136,18 +142,6 @@ export interface DeleteRecordOptions {
 export interface DeleteAllOptions {
   idempotencyKey?: string
   expectedEpoch?: string
-}
-
-export interface ArchiveWorkerOptions {
-  messageBoxClient: unknown
-  historyClient: unknown
-  messageBoxes: string[]
-  /** Injectable local cache (IndexedDB, SQLite, or app store); never bundled. */
-  localStore?: unknown
-}
-
-export interface SyncOnceOptions {
-  acknowledgeAfterArchive?: boolean
 }
 
 const REQUIRED_FEATURES = Object.freeze([
@@ -237,6 +231,13 @@ function validateHistoryRecord(value: unknown): HistoryRecord {
   return value as unknown as HistoryRecord
 }
 
+function validateDeleteEvent(value: unknown): void {
+  if (!isObject(value)) malformed()
+  requireRecordKey(value.recordKey)
+  requireUint64(value.sequence)
+  requireString(value.deletedAt)
+}
+
 function validateBrowse(value: unknown): BrowseResponse {
   if (!isObject(value) || !Array.isArray(value.records)) malformed()
   for (const record of value.records) validateHistoryRecord(record)
@@ -250,6 +251,10 @@ function validateBrowse(value: unknown): BrowseResponse {
 
 function validateHistoryPage(value: unknown): HistoryPage {
   if (!isObject(value) || !Array.isArray(value.records) || typeof value.hasMore !== 'boolean') malformed()
+  for (const record of value.records) {
+    if (isObject(record) && 'body' in record) validateHistoryRecord(record)
+    else validateDeleteEvent(record)
+  }
   if (value.nextCursor !== null) requireString(value.nextCursor)
   requireString(value.checkpoint)
   requireUint64(value.watermark)
@@ -413,9 +418,18 @@ export class MessageBoxStoreClient {
   }
 
   listChanges(options: HistoryChangesOptions = {}): Promise<HistoryPage> {
+    const checkpointMode = options.afterSequence !== undefined || options.epoch !== undefined
+    if ((options.afterSequence === undefined) !== (options.epoch === undefined)) {
+      throw new MessageBoxStoreClientError('ERR_INVALID_RECORD', 'afterSequence and epoch must be supplied together')
+    }
+    if (checkpointMode && options.cursor !== undefined && options.cursor !== null) {
+      throw new MessageBoxStoreClientError('ERR_INVALID_RECORD', 'cursor and checkpoint mode are mutually exclusive')
+    }
     const query = new URLSearchParams()
     appendFilter(query, options)
     if (options.cursor !== undefined && options.cursor !== null) query.set('cursor', options.cursor)
+    if (options.afterSequence !== undefined) query.set('afterSequence', options.afterSequence)
+    if (options.epoch !== undefined) query.set('epoch', options.epoch)
     return this.#request('GET', '/v1/history/changes', { query, validate: validateHistoryPage })
   }
 

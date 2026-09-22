@@ -835,7 +835,7 @@ function createMemoryCore({ limits = {}, now } = {}) {
    * sequence-ordered, no gaps/duplicates by sequence. Live views converge
    * idempotently; tombstoned bodies are never served (early delete).
    */
-  function listChangesPage({ owner, serverSecret, cursor = null, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {
+  function listChangesPage({ owner, serverSecret, cursor = null, afterSequence, expectedEpoch, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {
     validateFeedOwner(owner)
     validateServerSecret(serverSecret)
     validateSnapshotFilter(filter)
@@ -847,7 +847,33 @@ function createMemoryCore({ limits = {}, now } = {}) {
     let W
     let C
     let epoch
-    if (cursor === null || cursor === undefined) {
+    if ((afterSequence === undefined) !== (expectedEpoch === undefined)) {
+      const e = new Error('afterSequence and expectedEpoch must be supplied together')
+      e.code = 'ERR_INVALID_CURSOR'
+      throw e
+    }
+    const explicitCheckpoint = afterSequence !== undefined
+    if (explicitCheckpoint && cursor !== null && cursor !== undefined) {
+      const e = new Error('cursor and checkpoint mode are mutually exclusive')
+      e.code = 'ERR_INVALID_CURSOR'
+      throw e
+    }
+    if (explicitCheckpoint) {
+      validateChangesPosition(afterSequence)
+      if (expectedEpoch !== st.epoch) {
+        const e = new Error('epoch changed; take a full snapshot')
+        e.code = 'ERR_EPOCH_CHANGED'
+        throw e
+      }
+      W = currentWatermark(st)
+      C = afterSequence
+      epoch = st.epoch
+      if (BigInt(C) > BigInt(W)) {
+        const e = new Error('checkpoint is beyond the current watermark')
+        e.code = 'ERR_INVALID_CURSOR'
+        throw e
+      }
+    } else if (cursor === null || cursor === undefined) {
       W = currentWatermark(st)
       C = FEED_START
       epoch = st.epoch
@@ -877,7 +903,7 @@ function createMemoryCore({ limits = {}, now } = {}) {
     // retained history. Empty-cache completeness requires a snapshot per ADR;
     // changes from 0 is not a completeness proof. Continuations (C>0) expire
     // when purged gaps enter the unapplied range.
-    if (C !== FEED_START) {
+    if (C !== FEED_START || explicitCheckpoint) {
       assertNoRetentionGap({ position: C, earliest })
       if (earliest === null && C !== W) {
         const e = new Error('cursor outside retained history; take a full snapshot')
@@ -890,7 +916,7 @@ function createMemoryCore({ limits = {}, now } = {}) {
     const scanned = all.slice(0, bounded)
     // Internal retention gaps (mbs-8g5.2.4.4): any purged sequence inside
     // (C,W] fails closed even when the start is still retained.
-    assertNoInternalRetentionGap({ position: C, watermark: W, sequences: scanned.map((c) => String(c.sequence)), bounded })
+    assertNoInternalRetentionGap({ position: C, watermark: W, sequences: scanned.map((c) => String(c.sequence)), bounded, explicitCheckpoint })
     if (scanned.length === 0) {
       // Empty final checkpoint still represents W.
       return { records: [], nextCursor: null, checkpoint: W, hasMore: false, watermark: W, epoch, serverTime }

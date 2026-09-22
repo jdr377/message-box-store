@@ -240,6 +240,7 @@ declare const wallet: Parameters<typeof prepareEncryptedBody>[0]['wallet']
 declare const walletClient: WalletInterface
 const history = new MessageBoxStoreClient({ walletClient, host: 'https://history.example.com' })
 const capabilities = history.capabilities()
+const resumedChanges = history.listChanges({ afterSequence: '0', epoch: 'gen-1' })
 const inboundOperation = syncPending
 const outboundOperation = sendOutboundOnce
 const capability = createMessageBoxHttpSendCapability(messageBoxClient)
@@ -269,6 +270,7 @@ void prepared
 void sent
 void physicalCounts
 void capabilities
+void resumedChanges
 void inboundOperation
 void outboundOperation
 `)

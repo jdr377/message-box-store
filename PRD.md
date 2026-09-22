@@ -457,6 +457,17 @@ The change feed uses the same shape with records and body-free delete events. Cu
 opaque; clients MUST NOT parse or manufacture them. Cursor expiry is a typed
 response with a recovery hint, not an empty successful page.
 
+`GET /v1/history/changes` has two start modes. An omitted `cursor` starts the
+legacy initial scan. A client with complete local coverage starts a new pass
+with paired `afterSequence=<checkpoint>` and `epoch=<owner epoch>` query
+parameters. The pair is mutually exclusive with `cursor`; continuations use
+only the returned opaque cursor and remain fixed to the pass watermark. The
+server rejects half-pairs, noncanonical uint64 values, positions beyond the
+current watermark, epoch mismatch, and every retention gap—including a gap
+after an explicit checkpoint of `0`. A checkpoint is a claimed position, not
+authorization or proof that the client holds a complete replica;
+authentication still selects the owner.
+
 The ADR fixes commit-ordered decimal-string sequences, fixed W, versioned
 events, stable snapshots, cursor binding and coverage rules. Browse pagination
 does not prove a complete replica. Delete-all and restore rotate the owner

@@ -414,6 +414,49 @@ test('M2.1d changes fix W: post-W writes invisible until a fresh cursor', async 
   assert.equal(fresh.body.records.length, 3)
 })
 
+test('M3 .4.7 public HTTP resumes changes from snapshot and terminal checkpoints', async (t) => {
+  const h = await createHarness(t)
+  await archive(h, [outboundRecord({ messageId: 'resume-http-1', owner: h.clientId, peer: h.otherId })])
+  const snapshot = await snapshotCreate(h, { filter: { direction: 'outbound' } })
+  assert.equal(snapshot.status, 200)
+
+  await archive(h, [outboundRecord({ messageId: 'resume-http-2', owner: h.clientId, peer: h.otherId })])
+  const first = await changes(h, qs({ afterSequence: snapshot.body.watermark, epoch: snapshot.body.epoch, direction: 'outbound', limit: '1' }))
+  assert.equal(first.status, 200)
+  assert.deepEqual(first.body.records.map((row) => row.messageId), ['resume-http-2'])
+  assert.equal(first.body.checkpoint, first.body.watermark)
+
+  await archive(h, [outboundRecord({ messageId: 'resume-http-3', owner: h.clientId, peer: h.otherId })])
+  const second = await changes(h, qs({ afterSequence: first.body.checkpoint, epoch: first.body.epoch, direction: 'outbound' }))
+  assert.equal(second.status, 200)
+  assert.deepEqual(second.body.records.map((row) => row.messageId), ['resume-http-3'])
+  assert.ok(BigInt(second.body.watermark) > BigInt(first.body.watermark))
+
+  const empty = await changes(h, qs({ afterSequence: second.body.checkpoint, epoch: second.body.epoch, direction: 'outbound' }))
+  assert.equal(empty.status, 200)
+  assert.deepEqual(empty.body.records, [])
+  assert.equal(empty.body.checkpoint, second.body.checkpoint)
+
+  const crossOwner = await changes(h, qs({ afterSequence: snapshot.body.watermark, epoch: snapshot.body.epoch, direction: 'outbound' }), h.otherFetch)
+  assert.equal(crossOwner.status, 400)
+  assert.equal(crossOwner.body.code, 'ERR_INVALID_CURSOR')
+  assertRedacted(crossOwner.body, 'cross-owner checkpoint')
+
+  for (const query of [
+    qs({ afterSequence: '0' }),
+    qs({ epoch: snapshot.body.epoch }),
+    qs({ cursor: 'opaque', afterSequence: '0', epoch: snapshot.body.epoch }),
+    qs({ afterSequence: '01', epoch: snapshot.body.epoch }),
+    qs({ afterSequence: '18446744073709551615', epoch: snapshot.body.epoch }),
+  ]) {
+    const response = await changes(h, query)
+    assert.equal(response.status, 400, query)
+  }
+  const stale = await changes(h, qs({ afterSequence: second.body.checkpoint, epoch: 'gen-stale' }))
+  assert.equal(stale.status, 409)
+  assert.equal(stale.body.code, 'ERR_EPOCH_CHANGED')
+})
+
 test('M2.1d changes cursor misuse: tamper, filter, feed, epoch and cross-owner', async (t) => {
   const h = await createHarness(t)
   await archive(h, [
@@ -777,6 +820,17 @@ test('M2.1d retrieval validators and cursor mapping are stable and redacted', as
   assert.throws(() => validateUsageQuery({ extra: '1' }), (e) => e?.code === 'ERR_INVALID_RECORD')
   assert.throws(() => validateBrowseQuery({ limit: '0' }), (e) => e?.code === 'ERR_INVALID_RECORD')
   assert.throws(() => validateChangesQuery({ cursor: 42 }), (e) => e?.code === 'ERR_INVALID_CURSOR')
+  assert.throws(() => validateChangesQuery({ afterSequence: '0' }), (e) => e?.code === 'ERR_INVALID_RECORD')
+  assert.throws(() => validateChangesQuery({ epoch: 'gen-1' }), (e) => e?.code === 'ERR_INVALID_RECORD')
+  assert.throws(() => validateChangesQuery({ cursor: 'x', afterSequence: '0', epoch: 'gen-1' }), (e) => e?.code === 'ERR_INVALID_RECORD')
+  assert.throws(() => validateChangesQuery({ afterSequence: '01', epoch: 'gen-1' }), (e) => e?.code === 'ERR_INVALID_RECORD')
+  assert.deepEqual(validateChangesQuery({ afterSequence: '18446744073709551615', epoch: 'gen-1' }), {
+    cursor: null,
+    afterSequence: '18446744073709551615',
+    expectedEpoch: 'gen-1',
+    limit: undefined,
+    filter: {},
+  })
   assert.throws(() => validateSnapshotPageQuery({}), (e) => e?.code === 'ERR_INVALID_CURSOR')
   assert.throws(() => validateSnapshotPageQuery({ snapshotId: 'bad' }), (e) => e?.code === 'ERR_INVALID_CURSOR')
   assert.deepEqual(validateSnapshotCreateBody(undefined), { filter: {} })
