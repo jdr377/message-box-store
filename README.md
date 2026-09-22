@@ -182,6 +182,8 @@ if (!archived.committed) throw new Error('archive was not confirmed')
   implementation/release gates.
 - [PRD — message-box-store](./PRD.md) defines the product requirements,
   acceptance evidence, milestones, and release/adoption plan.
+- [Release evidence](./docs/RELEASE_EVIDENCE.md) maps FR-001 through FR-012 to
+  executable checks and lists the unresolved human release gates.
 
 ## Product intent and implementation alignment
 

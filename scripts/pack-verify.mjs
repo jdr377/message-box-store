@@ -50,6 +50,38 @@ function assertPackageTargets(packageRoot) {
   }
 }
 
+function assertArtifactInventory(metadata) {
+  const files = metadata?.files
+  if (!Array.isArray(files) || files.length === 0) fail('npm pack did not report its artifact inventory')
+  const paths = files.map((entry) => String(entry?.path ?? '').replaceAll('\\', '/'))
+  const forbidden = [
+    /^\.env(?:\.|$)/,
+    /(^|\/)\.beads(?:\/|$)/,
+    /(^|\/)\.git(?:\/|$)/,
+    /(^|\/)node_modules(?:\/|$)/,
+    /^plans(?:\/|$)/,
+    /^tests(?:\/|$)/,
+    /^ReferenceRepos(?:\/|$)/,
+  ]
+  for (const path of paths) {
+    if (path.length === 0 || path.startsWith('/') || /^[A-Za-z]:/.test(path)) fail(`invalid packed artifact path: ${path}`)
+    if (forbidden.some((pattern) => pattern.test(path))) fail(`forbidden packed artifact path: ${path}`)
+  }
+  for (const required of [
+    'package.json',
+    'README.md',
+    'ADR-001-durable-history.md',
+    'PRD.md',
+    'docs/RUNBOOK.md',
+    'docs/RELEASE_EVIDENCE.md',
+    'examples/private-history.ts',
+    'scripts/restore-recovery.mjs',
+    'src/restore-recovery.mjs',
+  ]) {
+    if (!paths.includes(required)) fail(`required packed artifact file is missing: ${required}`)
+  }
+}
+
 function runConsumerNode(script, consumerRoot, args = []) {
   const env = { ...process.env }
   delete env.NODE_PATH
@@ -74,6 +106,14 @@ function linkInstalledDependencies(consumerRoot) {
       symlinkSync(source, destination, process.platform === 'win32' ? 'junction' : 'dir')
     }
     const manifest = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+    if (manifest.name !== name || typeof manifest.version !== 'string' || manifest.version.length === 0) {
+      fail(`invalid installed dependency manifest: ${name}`)
+    }
+    for (const forbidden of ['mapapp', 'ReferenceRepos']) {
+      if (`${manifest.name}@${manifest.version}`.toLowerCase().includes(forbidden.toLowerCase())) {
+        fail(`consumer-specific dependency entered the installed graph: ${forbidden}`)
+      }
+    }
     for (const dependency of Object.keys(manifest.dependencies ?? {})) linkPackage(dependency)
     for (const dependency of Object.keys(manifest.optionalDependencies ?? {})) linkPackage(dependency, true)
     for (const dependency of Object.keys(manifest.peerDependencies ?? {})) {
@@ -85,6 +125,7 @@ function linkInstalledDependencies(consumerRoot) {
   for (const name of Object.keys(packageJson.peerDependencies ?? {})) {
     linkPackage(name, packageJson.peerDependenciesMeta?.[name]?.optional === true)
   }
+  return linked
 }
 
 function main() {
@@ -112,6 +153,7 @@ function main() {
     if (typeof packName !== 'string' || !packName.endsWith('.tgz')) fail('npm pack did not report a tarball', packResult)
     const tarball = resolve(packDir, packName)
     if (!existsSync(tarball)) fail(`reported package tarball does not exist: ${tarball}`)
+    assertArtifactInventory(packMetadata[0])
 
     run('tar', ['-xzf', tarball, '-C', stagingDir], { cwd: root, env: process.env })
     const packedRoot = join(stagingDir, 'package')
@@ -127,8 +169,14 @@ function main() {
     // npm would install declared runtime dependencies beside the tarball. Link
     // the repository's locked installation to model that state without a
     // registry/network dependency in this verifier.
-    linkInstalledDependencies(consumerRoot)
-    writeFileSync(join(consumerRoot, 'package.json'), JSON.stringify({ name: 'message-box-store-clean-consumer', private: true, type: 'module' }))
+    const installedDependencies = linkInstalledDependencies(consumerRoot)
+    writeFileSync(join(consumerRoot, 'package.json'), JSON.stringify({
+      name: 'message-box-store-clean-consumer',
+      private: true,
+      type: 'module',
+      dependencies: { [packageJson.name]: packageJson.version },
+    }))
+    const installedPackages = installedDependencies.size + 1
 
     const esmScript = join(consumerRoot, 'consumer-esm.mjs')
     writeFileSync(esmScript, `
@@ -298,7 +346,7 @@ void worker
     const packedExample = join(consumerRoot, 'node_modules', packageJson.name, 'examples', 'private-history.ts')
     run(process.execPath, [tsc, '--noEmit', '--strict', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--skipLibCheck', '--lib', 'ES2022,DOM', typesScript, packedExample], { cwd: consumerRoot, env: process.env })
 
-    console.log('pack-verify: real tarball consumer ESM/CJS/browser/declarations ok')
+    console.log(`pack-verify: artifact inventory, ${installedPackages}-package install graph, ESM/CJS/browser/declarations ok`)
   } finally {
     rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
