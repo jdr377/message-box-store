@@ -58,7 +58,8 @@ texts and the package's own license still require an authorized licensing decisi
 - Measured deployment capacity and supported runtime/peer matrices must be
   approved. Current limit and saturation tests prove bounded behavior, not a
   production throughput promise.
-- `CHANGELOG.md`, final migration/compatibility release notes, package license,
+- The changelog and upgrade/compatibility/rollback guidance exist for the private
+  `0.0.0` baseline. Their final versioned release notes, package license,
   third-party notices, registry scope, maintainer ownership, and SemVer must be
   approved and finalized.
 - An immutable release-candidate tarball and digest must be created only after

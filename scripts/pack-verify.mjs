@@ -70,10 +70,12 @@ function assertArtifactInventory(metadata) {
   for (const required of [
     'package.json',
     'README.md',
+    'CHANGELOG.md',
     'ADR-001-durable-history.md',
     'PRD.md',
     'docs/RUNBOOK.md',
     'docs/RELEASE_EVIDENCE.md',
+    'docs/UPGRADING.md',
     'examples/private-history.ts',
     'scripts/restore-recovery.mjs',
     'src/restore-recovery.mjs',

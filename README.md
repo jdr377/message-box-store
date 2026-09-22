@@ -184,6 +184,10 @@ if (!archived.committed) throw new Error('archive was not confirmed')
   acceptance evidence, milestones, and release/adoption plan.
 - [Release evidence](./docs/RELEASE_EVIDENCE.md) maps FR-001 through FR-012 to
   executable checks and lists the unresolved human release gates.
+- [Changelog](./CHANGELOG.md) records the private unreleased implementation and
+  its compatibility boundaries without assigning an unauthorized version.
+- [Upgrade, compatibility, and rollback](./docs/UPGRADING.md) defines consumer
+  and operator preflight, forward migration, cache recovery, and rollback.
 
 ## Product intent and implementation alignment
 

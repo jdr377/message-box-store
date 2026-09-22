@@ -90,6 +90,7 @@
   },
   "files": [
     "README.md",
+    "CHANGELOG.md",
     "ADR-001-durable-history.md",
     "PRD.md",
     "mod.ts",
