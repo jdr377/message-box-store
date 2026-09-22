@@ -18,12 +18,14 @@
  * routes over the same repository (browse, changes, snapshot creation,
  * snapshot paging, storage usage), and the M2.1e capabilities route that
  * publishes effective protocol/limits/retention/epoch/feature configuration
- * for the authenticated owner only. Reuses M1 protocol, limits, cursors,
- * filters, migrations and repository adapters; adds no rate/concurrency/
- * CORS controls (.3.2.1), no cleanup or logging (.3.2.2), no metrics,
- * discovery, pricing, deployment, client synchronization, policy framework,
- * workers, tombstone endpoint, live-send/ack, alternate databases, TLS
- * termination, or new storage behavior.
+ * for the authenticated owner only, and the M2.2a.1 ingress layer (exact
+ * configured origin/CORS policy plus early HTTP body, batch-item and
+ * batch-byte bounds before authentication or repository work). Reuses M1
+ * protocol, limits, cursors, filters, migrations and repository adapters;
+ * adds no rate or concurrency controls, no cleanup or logging (.3.2.2), no
+ * metrics, discovery, pricing, deployment, client synchronization, policy
+ * framework, workers, tombstone endpoint, live-send/ack, alternate
+ * databases, TLS termination, or new storage behavior.
  *
  * Server-only subpath: express/middleware/sdk/knex are loaded lazily so
  * `import 'message-box-store/server'` succeeds in a clean consumer without
@@ -35,7 +37,7 @@ import { LIMITS, PROTOCOL_VERSION, isIdentityKey, isRecordKey, isUint64DecimalSt
 import type { Capabilities } from './protocol.js'
 import type { HistoryRepository } from './storage.js'
 
-export const SERVICE_VERSION = '0.0.0-m2.1e'
+export const SERVICE_VERSION = '0.0.0-m2.2a.1'
 export const SERVICE_CONFIG_CODE = 'ERR_STORAGE_CONFIGURATION'
 export const SERVICE_MYSQL_CODE = 'ERR_MYSQL_CONFIG'
 export const SERVICE_MIGRATION_CODE = 'ERR_MIGRATION_STRUCTURE'
@@ -79,6 +81,40 @@ export const SERVICE_SUPPORTED_FEATURES: readonly string[] = Object.freeze([
 
 /** M2.1b test probe (not part of the frozen history API). */
 export const AUTH_PROBE_PATH = '/v1/history/auth-context'
+
+/** Exact archive-batch path used by the M2.2a.1 early batch bounds. */
+export const ARCHIVE_BATCH_PATH = '/v1/history/records'
+
+/**
+ * M2.2a.1 exact CORS contract (mbs-8g5.3.2.1.1). Response-headers mirror
+ * the pinned BRC-103/BRC-104 request-header contract so an allowed browser
+ * origin can both send and verify the signed exchange. Methods cover the
+ * frozen M2.1 mutation/retrieval surface only. No Allow-Credentials: the
+ * exchange authenticates per request via signed headers, never cookies.
+ */
+const CORS_ALLOWED_METHODS = 'GET, POST, PATCH, DELETE'
+const CORS_ALLOWED_HEADERS = [
+  'Content-Type',
+  'x-bsv-auth-version',
+  'x-bsv-auth-identity-key',
+  'x-bsv-auth-message-type',
+  'x-bsv-auth-nonce',
+  'x-bsv-auth-your-nonce',
+  'x-bsv-auth-signature',
+  'x-bsv-auth-request-id',
+  'x-bsv-auth-requested-certificates',
+].join(', ')
+const CORS_EXPOSED_HEADERS = [
+  'x-bsv-auth-version',
+  'x-bsv-auth-identity-key',
+  'x-bsv-auth-message-type',
+  'x-bsv-auth-nonce',
+  'x-bsv-auth-your-nonce',
+  'x-bsv-auth-signature',
+  'x-bsv-auth-request-id',
+  'x-bsv-auth-requested-certificates',
+].join(', ')
+const CORS_PREFLIGHT_MAX_AGE = '600'
 
 /**
  * Process-local bound for the M2.1b replay window (mbs-8g5.3.1.2.1). Each
@@ -182,6 +218,14 @@ export interface ServiceConfig {
   /** Enforced active-record policy: only `permanent` until finite retention ships (mbs-8g5.3.1.5.2). */
   retention: 'permanent'
   version: string
+  /**
+   * Exact allowed browser origins for CORS (M2.2a.1). Each entry is a
+   * canonical HTTPS origin only (`https://host[:port]`, no path); the
+   * service matches Origin headers verbatim against this list. Empty (the
+   * default) is the private non-browser contract: absent Origin proceeds,
+   * any present Origin fails closed 403 without permissive headers.
+   */
+  allowedOrigins: readonly string[]
 }
 
 /** Minimal Knex surface the service needs; avoids a hard type dependency. */
@@ -243,6 +287,11 @@ export interface ServiceAppState {
   repository?: HistoryRepository
   /** Operator HMAC secret for M2.1d opaque cursors. createService() supplies it. */
   serverSecret?: string
+  /**
+   * Exact allowed browser origins (M2.2a.1). Defaults to none: the private
+   * non-browser contract rejects any present Origin before authentication.
+   */
+  allowedOrigins?: readonly string[]
 }
 
 function configError(message: string, code: string = SERVICE_CONFIG_CODE): Error {
@@ -275,6 +324,43 @@ export function parseRetentionDays(value: unknown): 'permanent' {
   const text = String(value).trim()
   if (text === 'permanent') return 'permanent'
   throw configError('retention must be permanent until finite retention enforcement is available')
+}
+
+/**
+ * Parse configured CORS origins (M2.2a.1): an exact list or a comma list of
+ * canonical HTTPS origins, each validated as `new URL(origin).origin === entry`
+ * so paths, queries, credentials, default ports, casing and non-HTTPS forms
+ * fail typed. Empty/absent resolves to the private non-browser default ([]).
+ * No wildcard or pattern forms exist — the policy is exact string matching
+ * against what browsers send in the Origin header. Descriptions are generic
+ * and never echo the supplied values (they are configuration, not secrets,
+ * but one message covers every malformed case).
+ */
+export function parseAllowedOrigins(value: unknown): readonly string[] {
+  if (value === undefined || value === null || value === '') return Object.freeze([])
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : null
+  if (entries === null) throw configError('allowedOrigins must be exact HTTPS origins')
+  const origins = new Set<string>()
+  for (const entry of entries) {
+    if (typeof entry !== 'string') throw configError('allowedOrigins must be exact HTTPS origins')
+    const candidate = entry.trim()
+    if (candidate.length === 0) continue
+    let parsed: URL
+    try {
+      parsed = new URL(candidate)
+    } catch {
+      throw configError('allowedOrigins must be exact HTTPS origins')
+    }
+    if (parsed.protocol !== 'https:' || parsed.origin !== candidate) {
+      throw configError('allowedOrigins must be exact HTTPS origins')
+    }
+    origins.add(parsed.origin)
+  }
+  return Object.freeze([...origins])
 }
 
 function validatePort(value: unknown): number {
@@ -316,11 +402,13 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
   }
   const versionRaw = input['version']
   const version = typeof versionRaw === 'string' && versionRaw.length > 0 ? versionRaw : SERVICE_VERSION
+  const allowedOrigins = parseAllowedOrigins(input['allowedOrigins'])
   return {
     serverSecret,
     mysql: { host, port, user, password, database },
     retention,
     version,
+    allowedOrigins,
   }
 }
 
@@ -337,6 +425,7 @@ export function loadServiceConfigFromEnv(env: Record<string, string | undefined>
     },
     retention: env['MESSAGE_BOX_STORE_RETENTION_DAYS'] ?? 'permanent',
     version: env['MESSAGE_BOX_STORE_VERSION'] ?? SERVICE_VERSION,
+    allowedOrigins: env['MESSAGE_BOX_STORE_ALLOWED_ORIGINS'],
   })
 }
 
@@ -530,6 +619,36 @@ export function validateArchiveBatchBody(body: unknown): { epoch: string; record
     throw tooLargeError('batch exceeds the configured byte bound')
   }
   return { epoch: validEpoch, records: records as Array<Record<string, unknown>> }
+}
+
+/**
+ * M2.2a.1 early batch bounds (mbs-8g5.3.2.1.1): the exact M1 batch-item
+ * and batch-byte limits checked on the parsed archive body before
+ * authentication, replay-window or repository work, so oversized batches
+ * fail typed 413 without touching auth material or state. Shape and content
+ * validation (empty records, epoch, per-record fields, direction ownership,
+ * per-record MAX_BODY_BYTES outcomes) stay in validateArchiveBatchBody and
+ * the repository exactly as before; non-archive or non-array bodies are
+ * ignored here. The same typed/redacted ERR_REQUEST_TOO_LARGE envelope and
+ * generic description as the route validator; never echoes bodies.
+ */
+export function assertEarlyBatchBounds(body: unknown): void {
+  if (!isRecord(body)) return
+  const records = body['records']
+  if (!Array.isArray(records)) return
+  if (records.length > LIMITS.MAX_BATCH_RECORDS) {
+    throw tooLargeError('batch exceeds the configured record bound')
+  }
+  let batchBytes = 0
+  for (const record of records) {
+    if (!isRecord(record)) continue
+    const recordBody = record['body']
+    if (typeof recordBody !== 'string') continue
+    batchBytes += utf8Length(recordBody)
+    if (batchBytes > LIMITS.MAX_BATCH_BYTES) {
+      throw tooLargeError('batch exceeds the configured byte bound')
+    }
+  }
 }
 
 /**
@@ -1020,6 +1139,16 @@ async function defaultCreateAuthMiddleware(args: { wallet: unknown; sessionManag
  * keyset) and owner-claim agreement. Capabilities publish only canonical
  * limits, configured retention, frozen features and the caller's epoch.
  *
+ * M2.2a.1 ingress (mbs-8g5.3.2.1.1): exact configured origin/CORS policy
+ * plus early HTTP body, batch-item and batch-byte bounds run before any
+ * authentication, replay-window or repository work. Exact HTTPS origins
+ * from configuration get exact CORS headers (preflight answered before
+ * authentication); an absent Origin keeps the private non-browser contract;
+ * any other present Origin fails closed 403 without permissive headers.
+ * The early bounds reuse the accepted M1 LIMITS constants and the existing
+ * typed/redacted 413 envelope. Per-record MAX_BODY_BYTES outcomes, rate/
+ * concurrency controls, cleanup and logging remain out of scope.
+ *
  * Express/middleware are imported lazily so the server subpath remains
  * importable in a clean packed consumer without server peers installed.
  */
@@ -1027,11 +1156,63 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
   const { default: express } = (await import('express')) as unknown as { default: typeof import('express') }
   const app = express()
   app.disable('x-powered-by')
+
+  // M2.2a.1 exact origin/CORS gate (first middleware, mbs-8g5.3.2.1.1):
+  // absent Origin keeps the private non-browser contract (proceed with no
+  // Access-Control headers); an Origin exactly equal to a configured HTTPS
+  // origin gets the exact CORS headers, with preflight answered here before
+  // any body read, authentication or repository work; any other present
+  // Origin (including null, malformed, path/case/port variants and entries
+  // outside configuration) fails closed 403 with no permissive headers.
+  // Vary: Origin is set on every present-Origin response so shared caches
+  // never serve one origin's view to another. No wildcard forms exist.
+  const allowedOrigins = new Set(state.allowedOrigins ?? [])
+  app.use((req, res, next) => {
+    const rawOrigin = req.headers['origin']
+    if (rawOrigin === undefined) {
+      next()
+      return
+    }
+    res.setHeader('Vary', 'Origin')
+    const origin = typeof rawOrigin === 'string' ? rawOrigin : ''
+    if (!allowedOrigins.has(origin)) {
+      next(authError(403, SERVICE_FORBIDDEN_CODE, 'forbidden'))
+      return
+    }
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Access-Control-Expose-Headers', CORS_EXPOSED_HEADERS)
+    const requestedMethod = req.headers['access-control-request-method']
+    if (req.method === 'OPTIONS' && typeof requestedMethod === 'string' && requestedMethod.length > 0) {
+      res.setHeader('Access-Control-Allow-Methods', CORS_ALLOWED_METHODS)
+      res.setHeader('Access-Control-Allow-Headers', CORS_ALLOWED_HEADERS)
+      res.setHeader('Access-Control-Max-Age', CORS_PREFLIGHT_MAX_AGE)
+      res.status(204).end()
+      return
+    }
+    next()
+  })
+
+  // M2.2a.1 early HTTP body bound from Content-Length before the body is
+  // read or any authentication/repository work runs (mbs-8g5.3.2.1.1).
+  // Non-numeric or absent Content-Length falls through to express.json's
+  // streaming bound below, which is the enforcement of record for chunked
+  // or understated bodies. Exact boundary (== limit) proceeds; +1 fails
+  // typed 413 here. express.json stays registered for the parsed body the
+  // routes need.
+  app.use((req, _res, next) => {
+    const contentLength = req.headers['content-length']
+    if (typeof contentLength === 'string' && /^\d+$/.test(contentLength) && Number(contentLength) > LIMITS.MAX_HTTP_BODY_BYTES) {
+      next(tooLargeError())
+      return
+    }
+    next()
+  })
+
   // Parse every valid JSON value so route validators can consistently reject
   // primitive/array bodies with the authenticated typed error envelope. The
   // mutation contracts themselves still require plain JSON objects. The auth
   // middleware serializes primitive JSON bodies as raw bytes, so retain the
-  // exact bytes and expose them to it before protected routes run.
+  // exact bytes and expose to it before protected routes run.
   app.use(express.json({
     limit: LIMITS.MAX_HTTP_BODY_BYTES,
     strict: false,
@@ -1039,6 +1220,20 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
       rawJsonBodies.set(request, Buffer.from(buffer))
     },
   }))
+
+  // M2.2a.1 early batch bounds for the archive route, before authentication
+  // (mbs-8g5.3.2.1.1). Route-level validateArchiveBatchBody keeps the full
+  // shape/content contract (defense in depth plus per-record outcomes).
+  app.use((req, _res, next) => {
+    try {
+      if (req.method === 'POST' && (req.path === ARCHIVE_BATCH_PATH || req.path === `${ARCHIVE_BATCH_PATH}/`)) {
+        assertEarlyBatchBounds(req.body)
+      }
+      next()
+    } catch (error) {
+      next(error)
+    }
+  })
 
   app.get('/healthz', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'ok', version: state.version })
@@ -1241,7 +1436,7 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     }
   }
 
-  app.post('/v1/history/records', handleArchiveBatch)
+  app.post(ARCHIVE_BATCH_PATH, handleArchiveBatch)
   app.patch('/v1/history/records/:recordKey/state', handlePatchState)
   app.delete('/v1/history/records/:recordKey', handleDeleteOne)
   app.delete('/v1/history/records', handleDeleteAll)
@@ -1580,6 +1775,7 @@ export async function createService(options: ServiceOptions): Promise<Service> {
     authMiddleware,
     repository: resolvedStore,
     serverSecret: config.serverSecret,
+    allowedOrigins: config.allowedOrigins,
   })
 
   async function migrate(): Promise<string[]> {

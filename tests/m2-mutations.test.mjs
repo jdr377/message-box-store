@@ -282,7 +282,14 @@ test('M2.1c archive malformed shapes fail 400 without ciphertext echo', async (t
 test('M2.1c archive oversized batch fails 413; oversized single body is per-record', async (t) => {
   const h = await createHarness(t)
   const rec = (n) => outboundRecord({ messageId: `m2c-big-${n}`, owner: h.clientId, peer: h.otherId })
-  const tooMany = await archive(h, Array.from({ length: 101 }, (_, i) => rec(i)))
+  // The M2.2a.1 early batch bound rejects >100 records before authentication,
+  // so the 413 is unsigned (no BRC response signature) and must be read over
+  // a plain fetch; AuthFetch itself rejects unsigned error responses.
+  const tooMany = await plainJson(`${h.base}/v1/history/records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ epoch: 'gen-1', records: Array.from({ length: 101 }, (_, i) => rec(i)) }),
+  })
   assert.equal(tooMany.status, 413)
   assert.equal(tooMany.body?.code, 'ERR_REQUEST_TOO_LARGE')
   assertRedacted(tooMany.body, 'oversized batch')

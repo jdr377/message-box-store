@@ -1,10 +1,11 @@
 /**
  * Typed M1+ server surface (mbs-8g5.2.2.1) plus M2.1a composition boundary
  * (mbs-8g5.3.1.1), M2.1b auth binding (mbs-8g5.3.1.2), M2.1c mutations
- * (mbs-8g5.3.1.3), M2.1d retrieval routes (mbs-8g5.3.1.4) and M2.1e
- * capabilities/liveness/readiness (mbs-8g5.3.1.5). Server-only subpath:
- * Express route adapter types and the standalone service live here so
- * browser bundles never include them.
+ * (mbs-8g5.3.1.3), M2.1d retrieval routes (mbs-8g5.3.1.4), M2.1e
+ * capabilities/liveness/readiness (mbs-8g5.3.1.5) and M2.2a.1 exact
+ * origin/CORS plus early body/batch ingress bounds (mbs-8g5.3.2.1.1).
+ * Server-only subpath: Express route adapter types and the standalone
+ * service live here so browser bundles never include them.
  *
  * Runtime server dependencies (express, auth middleware, sdk, and other
  * authenticated-route deps) are optional peers: a browser/clean consumer
@@ -35,12 +36,14 @@ export type SnapshotRoute = (identity: AuthenticatedIdentity, query: Record<stri
 export type ChangesRoute = (identity: AuthenticatedIdentity, query: Record<string, string | undefined>, options: HistoryRoutesOptions) => Promise<RouteResult<HistoryPage>>
 
 // M2.1a standalone composition boundary plus M2.1b auth binding, M2.1c
-// mutations, M2.1d retrieval routes and M2.1e capabilities.
+// mutations, M2.1d retrieval routes, M2.1e capabilities and M2.2a.1
+// ingress (exact origins/CORS, early body/batch bounds).
 // Re-exported here so the single `message-box-store/server` subpath owns
 // Express/MySQL/auth construction while browser-safe entrypoints stay free
 // of server code. The Capabilities wire type itself lives on the browser-safe
 // protocol subpath alongside the frozen schema it mirrors.
 export {
+  ARCHIVE_BATCH_PATH,
   AUTH_HANDSHAKE_PATH,
   AUTH_PROBE_PATH,
   REPLAY_CACHE_LIMIT,
@@ -65,6 +68,7 @@ export {
   SERVICE_UNAVAILABLE_CODE,
   SERVICE_VERSION,
   assertArchiveOwnership,
+  assertEarlyBatchBounds,
   assertNoOwnerOverride,
   buildCapabilities,
   createReplayGuard,
@@ -72,6 +76,7 @@ export {
   createServiceApp,
   loadServiceConfigFromEnv,
   mapRepositoryError,
+  parseAllowedOrigins,
   parseRetentionDays,
   resolveRequestOwner,
   validateArchiveBatchBody,
