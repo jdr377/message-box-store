@@ -1,11 +1,12 @@
 /**
  * Typed M1+ server surface (mbs-8g5.2.2.1) plus M2.1a composition boundary
  * (mbs-8g5.3.1.1), M2.1b auth binding (mbs-8g5.3.1.2), M2.1c mutations
- * (mbs-8g5.3.1.3) and M2.1d retrieval routes (mbs-8g5.3.1.4). Server-only
- * subpath: Express route adapter types and the standalone service live here
- * so browser bundles never include them.
+ * (mbs-8g5.3.1.3), M2.1d retrieval routes (mbs-8g5.3.1.4) and M2.1e
+ * capabilities/liveness/readiness (mbs-8g5.3.1.5). Server-only subpath:
+ * Express route adapter types and the standalone service live here so
+ * browser bundles never include them.
  *
- * Runtime server dependencies (express, auth middleware, sdk, and later
+ * Runtime server dependencies (express, auth middleware, sdk, and other
  * authenticated-route deps) are optional peers: a browser/clean consumer
  * without them can still resolve types, while a service install provides
  * them. Browser-safe modules (mod/protocol/client/canonical) must never
@@ -34,10 +35,11 @@ export type SnapshotRoute = (identity: AuthenticatedIdentity, query: Record<stri
 export type ChangesRoute = (identity: AuthenticatedIdentity, query: Record<string, string | undefined>, options: HistoryRoutesOptions) => Promise<RouteResult<HistoryPage>>
 
 // M2.1a standalone composition boundary plus M2.1b auth binding, M2.1c
-// mutations and M2.1d retrieval routes.
+// mutations, M2.1d retrieval routes and M2.1e capabilities.
 // Re-exported here so the single `message-box-store/server` subpath owns
 // Express/MySQL/auth construction while browser-safe entrypoints stay free
-// of server code.
+// of server code. The Capabilities wire type itself lives on the browser-safe
+// protocol subpath alongside the frozen schema it mirrors.
 export {
   AUTH_HANDSHAKE_PATH,
   AUTH_PROBE_PATH,
@@ -58,11 +60,13 @@ export {
   SERVICE_QUOTA_CODE,
   SERVICE_RATE_LIMITED_CODE,
   SERVICE_REVISION_CODE,
+  SERVICE_SUPPORTED_FEATURES,
   SERVICE_TOO_LARGE_CODE,
   SERVICE_UNAVAILABLE_CODE,
   SERVICE_VERSION,
   assertArchiveOwnership,
   assertNoOwnerOverride,
+  buildCapabilities,
   createReplayGuard,
   createService,
   createServiceApp,

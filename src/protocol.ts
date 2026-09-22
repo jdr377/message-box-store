@@ -155,6 +155,29 @@ export interface SnapshotMeta {
   expiresAt: string
 }
 
+/**
+ * Authenticated capabilities document (FR-010, mbs-8g5.3.1.5): effective
+ * protocol version, the authenticated owner's epoch, canonical limits, the
+ * enforced retention policy and the supported feature list. Mirrors the
+ * frozen M1 `capabilities` JSON schema; carries no owner records, counts,
+ * connection details or auth material. Retention reports only the enforced
+ * policy: `permanent` until finite active-record retention ships
+ * (mbs-8g5.3.1.5.2).
+ */
+export interface Capabilities {
+  protocolVersion: string
+  epoch: string
+  maxRecordsPerOwner: number
+  maxBytesPerOwner: number
+  maxBodyBytes: number
+  maxBatchRecords: number
+  maxBatchBytes: number
+  maxPageRecords: number
+  maxPageBytes: number
+  retention: string
+  supportedFeatures: string[]
+}
+
 export interface StoreError {
   status: 'error'
   code: StoreErrorCode

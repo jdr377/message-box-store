@@ -608,16 +608,23 @@ rollback, and query plans; SQLite alone is not concurrency evidence.
 
 ## Retention, deletion, and backup
 
-History retention is configured by `MESSAGE_BOX_STORE_RETENTION_DAYS`: an
-integer of at least 7 or `permanent`; default is `permanent` (no scheduled
-expiry). Permanent means only no scheduled expiry: finite per-owner quotas
-still apply and operators may purge content or the service at any time. This
-is best-effort storage, not a backup or availability guarantee. Expiry and
-owner deletion remove active bodies and release quota immediately; they append
-only a minimal delete event for 30 days, with no ciphertext tombstone. An
-expired cursor forces a complete snapshot and removes local records absent
-from that snapshot. Delete-all is owner-authenticated, idempotent, rotates the
-epoch, and retains no message content in the delete event.
+History retention is configured by `MESSAGE_BOX_STORE_RETENTION_DAYS`. The
+only accepted and enforced value today is `permanent` (no scheduled expiry),
+which is also what `GET /v1/history/capabilities` publishes: finite per-record
+expiry is deliberately deferred until it is enforced through the existing
+deletion primitives (quota release, minimal delete event, snapshot
+invalidation), so configuration rejects finite day counts rather than
+advertising an unenforced policy (`mbs-8g5.3.1.5.2`). When finite retention
+ships, an integer of at least 7 becomes valid again and capabilities must
+report exactly that enforced value. Permanent means only no scheduled expiry:
+finite per-owner quotas still apply and operators may purge content or the
+service at any time. This is best-effort storage, not a backup or availability
+guarantee. Owner deletion removes active bodies and releases quota
+immediately; it appends only a minimal delete event for 30 days, with no
+ciphertext tombstone. An expired cursor forces a complete snapshot and removes
+local records absent from that snapshot. Delete-all is owner-authenticated,
+idempotent, rotates the epoch, and retains no message content in the delete
+event.
 
 Backups are an operator responsibility but are part of the product contract:
 

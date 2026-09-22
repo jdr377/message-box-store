@@ -148,12 +148,14 @@ rule, not an exactly-once or one-physical-request promise.
 
 ## Retention, quotas, and deletion
 
-Message retention is controlled by `MESSAGE_BOX_STORE_RETENTION_DAYS`: the
-accepted values are an integer of at least 7 or `permanent`; the default is
-`permanent` (no scheduled expiry). A permanent setting does not remove the
-per-owner quota. Operators may purge records or the service at any time. This
-is best-effort history storage and no UI or package text may promise guaranteed
-backup or availability.
+Message retention is controlled by `MESSAGE_BOX_STORE_RETENTION_DAYS`. The
+only accepted value is `permanent` (no scheduled expiry); finite day counts
+are rejected until finite active-record retention is enforced end to end, and
+`GET /v1/history/capabilities` publishes only the enforced policy (`permanent`)
+so clients never read an unenforced retention value (`mbs-8g5.3.1.5.2`). A
+permanent setting does not remove the per-owner quota. Operators may purge
+records or the service at any time. This is best-effort history storage and no
+UI or package text may promise guaranteed backup or availability.
 
 Initial finite defaults for M1 are **10,000 records and 1 GiB of exact
 ciphertext-body bytes per owner**, combined across inbound and outbound

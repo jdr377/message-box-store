@@ -363,8 +363,8 @@ test('M2.1c archive method/path and unsigned callers', async (t) => {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
   })
   assert.equal(unsigned.status, 401)
-  // Unsigned requests are rejected by the public auth middleware itself,
-  // which carries its own stable code; the redaction boundary still holds.
+  // Unsigned requests fail the service's pre-middleware gate with the shared
+  // schema-valid redacted 401 envelope (mbs-8g5.3.1.5).
   assertRedacted(unsigned.body, 'unsigned archive')
 })
 

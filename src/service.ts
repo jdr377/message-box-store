@@ -1,25 +1,29 @@
 /**
- * M2.1b auth binding (mbs-8g5.3.1.2) plus M2.1c mutation routes
- * (mbs-8g5.3.1.3) and M2.1d retrieval routes (mbs-8g5.3.1.4) over the M2.1a
- * composition boundary (mbs-8g5.3.1.1): standalone Express service, MySQL
- * repository construction, BRC-103/BRC-104 owner-scoped request context, and
- * versioned archive/state/deletion plus read routes.
+ * M2.1b auth binding (mbs-8g5.3.1.2) through M2.1e capabilities and
+ * operational endpoints (mbs-8g5.3.1.5) over the M2.1a composition boundary
+ * (mbs-8g5.3.1.1): standalone Express service, MySQL repository construction,
+ * BRC-103/BRC-104 owner-scoped request context, versioned archive/state/
+ * deletion plus read routes, authenticated capabilities, public liveness and
+ * non-sensitive MySQL readiness.
  *
  * Scope: validated configuration, Knex/MySQL repository construction,
- * migration verification before readiness, Express app/router assembly with
- * capability placeholders, explicit start/stop ownership, public auth
- * middleware integration, one request-context adapter (verified identity is
+ * migration verification plus a non-sensitive database probe before readiness,
+ * Express app/router assembly with the authenticated capabilities route,
+ * explicit start/stop ownership, public auth middleware integration behind an
+ * unsigned-request gate, one request-context adapter (verified identity is
  * the only owner selector), conflicting-owner rejection, inbound-recipient/
  * outbound-sender enforcement before repository calls, the shared replay
  * window, four mutation routes over the existing M1 repository (archive
- * batch, delivery-state patch, delete one, delete all), and five retrieval
- * routes over the same repository: browse (live keyset), changes
- * (fixed-watermark feed), snapshot creation, snapshot paging, and storage
- * usage. Reuses M1 protocol, limits, cursors, filters, migrations and
- * repository adapters; adds no capability logic (.3.1.5), no rate/concurrency/
- * CORS controls (.3.2.1), no cleanup or logging (.3.2.2), no workers, client
- * sync, tombstone endpoint, pricing/payment/live-send/ack, alternate
- * databases, TLS termination, deployment, or new storage semantics.
+ * batch, delivery-state patch, delete one, delete all), five retrieval
+ * routes over the same repository (browse, changes, snapshot creation,
+ * snapshot paging, storage usage), and the M2.1e capabilities route that
+ * publishes effective protocol/limits/retention/epoch/feature configuration
+ * for the authenticated owner only. Reuses M1 protocol, limits, cursors,
+ * filters, migrations and repository adapters; adds no rate/concurrency/
+ * CORS controls (.3.2.1), no cleanup or logging (.3.2.2), no metrics,
+ * discovery, pricing, deployment, client synchronization, policy framework,
+ * workers, tombstone endpoint, live-send/ack, alternate databases, TLS
+ * termination, or new storage behavior.
  *
  * Server-only subpath: express/middleware/sdk/knex are loaded lazily so
  * `import 'message-box-store/server'` succeeds in a clean consumer without
@@ -27,10 +31,11 @@
  * imported by browser-safe root, protocol, client or canonical modules.
  */
 import type { Express, NextFunction, Request, RequestHandler, Response } from 'express'
-import { LIMITS, isIdentityKey, isRecordKey, isUint64DecimalString } from './canonical.js'
+import { LIMITS, PROTOCOL_VERSION, isIdentityKey, isRecordKey, isUint64DecimalString } from './canonical.js'
+import type { Capabilities } from './protocol.js'
 import type { HistoryRepository } from './storage.js'
 
-export const SERVICE_VERSION = '0.0.0-m2.1d'
+export const SERVICE_VERSION = '0.0.0-m2.1e'
 export const SERVICE_CONFIG_CODE = 'ERR_STORAGE_CONFIGURATION'
 export const SERVICE_MYSQL_CODE = 'ERR_MYSQL_CONFIG'
 export const SERVICE_MIGRATION_CODE = 'ERR_MIGRATION_STRUCTURE'
@@ -49,6 +54,28 @@ export const SERVICE_RATE_LIMITED_CODE = 'ERR_RATE_LIMITED'
 export const SERVICE_CURSOR_EXPIRED_CODE = 'ERR_CURSOR_EXPIRED'
 export const SERVICE_INVALID_CURSOR_CODE = 'ERR_INVALID_CURSOR'
 export const SERVICE_INTERNAL_CODE = 'ERR_INTERNAL'
+
+/**
+ * M2.1e supported features (mbs-8g5.3.1.5): the actual implemented service
+ * surface the capabilities route publishes. Static and configuration-free by
+ * construction, so the document can never reflect another owner's state, a
+ * dependency, or connection detail. Each entry maps to a route or frozen
+ * behavior that exists in this composition; nothing speculative is listed.
+ */
+export const SERVICE_SUPPORTED_FEATURES: readonly string[] = Object.freeze([
+  'archiveBatch',
+  'browse',
+  'changes',
+  'snapshotCreate',
+  'snapshotPage',
+  'patchState',
+  'deleteRecord',
+  'deleteAll',
+  'usage',
+  'capabilities',
+  'epoch',
+  'idempotency',
+])
 
 /** M2.1b test probe (not part of the frozen history API). */
 export const AUTH_PROBE_PATH = '/v1/history/auth-context'
@@ -152,7 +179,8 @@ export interface ServiceMysqlConfig {
 export interface ServiceConfig {
   serverSecret: string
   mysql: ServiceMysqlConfig
-  retention: 'permanent' | number
+  /** Enforced active-record policy: only `permanent` until finite retention ships (mbs-8g5.3.1.5.2). */
+  retention: 'permanent'
   version: string
 }
 
@@ -201,6 +229,14 @@ export interface Service {
 export interface ServiceAppState {
   checkReadiness: () => ReadinessStatus
   version: string
+  /**
+   * Non-sensitive MySQL probe for GET /ready, evaluated only after the
+   * migration gate passes. Must resolve true/false without ever throwing or
+   * surfacing connection details; createService() always supplies it.
+   * Required for a ready result (mbs-8g5.3.1.5.1): when absent, throwing or
+   * false, readiness fails closed with the same redacted 503.
+   */
+  checkDatabase?: () => Promise<boolean>
   /** Public BRC-103/BRC-104 middleware. createService() always supplies it. */
   authMiddleware?: RequestHandler
   /** M1 repository for M2.1c mutation routes. Absent in unit probes only. */
@@ -226,20 +262,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-/** Parse MESSAGE_BOX_STORE_RETENTION_DAYS: integer >= 7 or 'permanent'. */
-export function parseRetentionDays(value: unknown): 'permanent' | number {
+/**
+ * Parse MESSAGE_BOX_STORE_RETENTION_DAYS. Only `permanent` — the single
+ * actually enforced active-record policy — is accepted until finite
+ * retention enforcement exists (mbs-8g5.3.1.5.2): a finite day count would
+ * be advertised by capabilities without expiring any record, which FR-010
+ * forbids. Finite values fail typed so config cannot carry an unenforced
+ * boundary; default/empty resolves to `permanent`.
+ */
+export function parseRetentionDays(value: unknown): 'permanent' {
   if (value === undefined || value === null || value === '') return 'permanent'
-  if (value === 'permanent') return 'permanent'
   const text = String(value).trim()
   if (text === 'permanent') return 'permanent'
-  if (!/^[0-9]+$/.test(text)) {
-    throw configError('retention must be an integer of at least 7 or permanent')
-  }
-  const days = Number(text)
-  if (!Number.isSafeInteger(days) || days < 7) {
-    throw configError('retention must be an integer of at least 7 or permanent')
-  }
-  return days
+  throw configError('retention must be permanent until finite retention enforcement is available')
 }
 
 function validatePort(value: unknown): number {
@@ -273,7 +308,7 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
   const host = hostRaw === undefined ? '127.0.0.1' : String(hostRaw)
   if (host.length === 0 || host.length > 255) throw configError('mysql host is invalid', SERVICE_MYSQL_CODE)
   const port = portRaw === undefined ? 3306 : validatePort(portRaw)
-  let retention: 'permanent' | number = 'permanent'
+  let retention: 'permanent' = 'permanent'
   try {
     retention = parseRetentionDays(input['retention'] ?? input['retentionDays'])
   } catch (error) {
@@ -828,6 +863,35 @@ export function validateUsageQuery(query: unknown): Record<string, never> {
 }
 
 /**
+ * M2.1e capabilities document (mbs-8g5.3.1.5). Built exclusively from the
+ * canonical limits and protocol version, the enforced retention policy, the
+ * frozen feature list, and the caller's own epoch. Carries no record/byte
+ * counts, no other owner's state, no MySQL/connection detail and no auth
+ * material; the frozen M1 capabilities schema rejects any extra field.
+ *
+ * Retention is always the enforced policy `permanent`
+ * (mbs-8g5.3.1.5.2): finite active-record retention is deferred until it
+ * expires records and releases quota through the existing deletion
+ * primitives, so capabilities never advertises a value that no repository
+ * operation honors (FR-010 effective-limits contract).
+ */
+export function buildCapabilities(args: { epoch: string }): Capabilities {
+  return {
+    protocolVersion: PROTOCOL_VERSION,
+    epoch: args.epoch,
+    maxRecordsPerOwner: LIMITS.MAX_RECORDS_PER_OWNER,
+    maxBytesPerOwner: LIMITS.MAX_BYTES_PER_OWNER,
+    maxBodyBytes: LIMITS.MAX_BODY_BYTES,
+    maxBatchRecords: LIMITS.MAX_BATCH_RECORDS,
+    maxBatchBytes: LIMITS.MAX_BATCH_BYTES,
+    maxPageRecords: LIMITS.MAX_PAGE_RECORDS,
+    maxPageBytes: LIMITS.MAX_PAGE_BYTES,
+    retention: 'permanent',
+    supportedFeatures: [...SERVICE_SUPPORTED_FEATURES],
+  }
+}
+
+/**
  * Map repository/adapter errors to stable HTTP envelopes. Known M1 codes
  * keep their code; descriptions stay generic and never echo bodies, keys,
  * cursors, or auth material. Unknown errors become 500 ERR_INTERNAL.
@@ -934,23 +998,27 @@ async function defaultCreateAuthMiddleware(args: { wallet: unknown; sessionManag
 }
 
 /**
- * Assemble the Express app. Capability routes remain typed open
- * placeholders returning 501 until .3.1.5 implements them. The four M2.1c
- * mutation routes and five M2.1d retrieval routes live behind the public
- * auth middleware and the reusable replay window over the injected M1
- * repository. Liveness is dependency-free; readiness is 503 until
- * migrate() verifies MySQL migrations (.3.1.5 owns the complete
- * capabilities/isolation matrix).
+ * Assemble the Express app. Public liveness (/healthz) performs no
+ * dependency checks and never invokes checkReadiness or checkDatabase;
+ * public readiness (/ready) is 503 until migrate() has verified MySQL
+ * migrations AND a database probe that is present, non-throwing and true —
+ * always with the same non-sensitive envelope (mbs-8g5.3.1.5.1 fail-closed). The four M2.1c mutation
+ * routes, five M2.1d retrieval routes and the M2.1e capabilities route live
+ * behind the unsigned-request gate, the public auth middleware and the
+ * reusable replay window over the injected M1 repository.
  *
- * M2.1c/d auth layout: the exact `/.well-known/auth` handshake stays
- * reachable before the middleware; every other application request
- * (mutation/read routes, probe, authenticated 404) passes the middleware
- * plus the shared replay window, which skips only the exact handshake
- * path. Unauthenticated read/mutation requests fail with 401 before route
- * resolution (no existence oracle). Read routes delegate opaque cursors,
- * filters, epoch, watermark and TTL semantics to M1 without reimplementing
- * them; the HTTP layer validates only shapes (unknown fields, limit,
- * snapshotId, after keyset) and owner-claim agreement.
+ * Auth layout: the exact `/.well-known/auth` handshake stays reachable
+ * before the middleware; every other application request (capability,
+ * mutation/read routes, probe, authenticated 404) must carry auth headers,
+ * then passes the middleware plus the shared replay window, which skips only
+ * the exact handshake path. Unauthenticated capability/mutation/read
+ * requests fail with the service's schema-valid 401 before route resolution
+ * (no existence oracle); conflicting owner claims fail 403 before any
+ * repository access. Read routes delegate opaque cursors, filters, epoch,
+ * watermark and TTL semantics to M1 without reimplementing them; the HTTP
+ * layer validates only shapes (unknown fields, limit, snapshotId, after
+ * keyset) and owner-claim agreement. Capabilities publish only canonical
+ * limits, configured retention, frozen features and the caller's epoch.
  *
  * Express/middleware are imported lazily so the server subpath remains
  * importable in a clean packed consumer without server peers installed.
@@ -976,22 +1044,33 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     res.status(200).json({ status: 'ok', version: state.version })
   })
 
-  app.get('/ready', (_req: Request, res: Response) => {
+  // Readiness (mbs-8g5.3.1.5, fail-closed probe gate mbs-8g5.3.1.5.1):
+  // public, two gates, no connection detail. First the migration gate
+  // (verified schema versions), then the database probe. The probe is
+  // REQUIRED for a ready result: absent, throwing and false all return the
+  // same typed ERR_UNAVAILABLE 503 with a generic description — never host,
+  // port, user, database, credential, driver text or probe error. Liveness
+  // above stays dependency-free and invokes neither check.
+  app.get('/ready', async (_req: Request, res: Response) => {
     const readiness = state.checkReadiness()
     if (!readiness.ready) {
       res.status(503).json(placeholderError('service not ready: migrations not verified'))
       return
     }
+    let databaseReady = false
+    if (state.checkDatabase) {
+      try {
+        databaseReady = (await state.checkDatabase()) === true
+      } catch {
+        databaseReady = false
+      }
+    }
+    if (!databaseReady) {
+      res.status(503).json(placeholderError('service not ready: database unavailable'))
+      return
+    }
     res.status(200).json({ status: 'ready', version: state.version })
   })
-
-  const placeholder = (route: string) => (_req: Request, res: Response) => {
-    res.status(501).json(placeholderError(`not implemented in M2.1 composition boundary: ${route}`))
-  }
-
-  // Capability placeholder stays open until .3.1.5. Read placeholders are
-  // gone: the real M2.1d routes below sit behind auth.
-  app.get('/v1/history/capabilities', placeholder('GET /v1/history/capabilities'))
 
   const requireRepository = (): HistoryRepository => {
     if (!state.repository) {
@@ -1018,6 +1097,27 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
           (req.body === null || typeof req.body !== 'object' || Array.isArray(req.body))) {
         const rawBody = rawJsonBodies.get(req)
         if (rawBody) req.body = rawBody
+      }
+      next()
+    })
+    // Unsigned-request gate ahead of the public middleware (mbs-8g5.3.1.5).
+    // A header-less request (other than the exact handshake path) fails closed
+    // with this service's schema-valid redacted 401 envelope, so every
+    // protected route reports one error contract instead of the middleware's
+    // upstream shape. Presence only: signatures, sessions and malformed or
+    // expired material are still verified and classified by the middleware,
+    // and the replay window still records only middleware-verified request ids.
+    app.use((req, _res, next) => {
+      if (req.path === AUTH_HANDSHAKE_PATH) {
+        next()
+        return
+      }
+      const signature = req.headers['x-bsv-auth-signature']
+      const requestId = req.headers['x-bsv-auth-request-id']
+      if ((typeof signature !== 'string' || signature.length === 0) ||
+          (typeof requestId !== 'string' || requestId.length === 0)) {
+        next(authError(401, SERVICE_AUTH_CODE, 'authentication required'))
+        return
       }
       next()
     })
@@ -1275,6 +1375,42 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     }
   }
 
+  /**
+   * M2.1e capabilities route (mbs-8g5.3.1.5), behind the same unsigned gate,
+   * auth middleware and replay window as every other protected route. Owner
+   * comes only from the verified session; conflicting owner claims fail 403
+   * before repository access, and the route takes no query parameters. The
+   * response is built by buildCapabilities from effective configuration plus
+   * this owner's current epoch: no record/byte counts, no other owner's
+   * state, no MySQL/connection detail, no auth material. Retention is the
+   * enforced policy only (`permanent`, mbs-8g5.3.1.5.2). A repository epoch
+   * that violates the canonical epoch grammar fails closed as 500 rather
+   * than emitting a schema-invalid document.
+   */
+  const handleCapabilities = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
+      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
+      validateUsageQuery(req.query)
+      const repository = requireRepository()
+      const usage = await repository.getUsage({ owner: ownerIdentityKey })
+      const epoch = usage.epoch
+      if (typeof epoch !== 'string' || !EPOCH_RE.test(epoch)) {
+        const error = new TypeError('repository reported a non-canonical epoch') as Error & { code: string }
+        error.code = SERVICE_INTERNAL_CODE
+        throw error
+      }
+      res.status(200).json(buildCapabilities({ epoch }))
+    } catch (error) {
+      const statusCode = (error as { statusCode?: unknown })?.statusCode
+      if (Number.isSafeInteger(statusCode)) {
+        next(error)
+        return
+      }
+      sendRepositoryError(error, next)
+    }
+  }
+
   // Browse shares the archive collection path with a different method:
   // POST archives, GET browses the live keyset (non-authoritative).
   app.get('/v1/history/records', handleBrowse)
@@ -1282,6 +1418,7 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
   app.post('/v1/history/snapshot', handleSnapshotCreate)
   app.get('/v1/history/snapshot', handleSnapshotPage)
   app.get('/v1/history/usage', handleUsage)
+  app.get('/v1/history/capabilities', handleCapabilities)
 
   // M2.1b test probe (not frozen API): proves the verified identity is the
   // only owner selector and that ownership is enforced before any repository
@@ -1387,8 +1524,11 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
  * (injected fakes for tests or real MySQL otherwise), binds the public
  * BRC-103/BRC-104 middleware with an injectable server wallet and session
  * manager, assembles the router, and returns explicit start/stop ownership.
- * Migrations are verified via migrate() before checkReadiness()/GET /ready
- * report ready.
+ * Migrations are verified via migrate() and the MySQL probe must still
+ * succeed before checkReadiness()-gated GET /ready reports ready; the probe
+ * is required for ready (absent/throwing/false fail closed) and never
+ * exposes connection detail. Capabilities publish only the enforced
+ * retention policy (`permanent` until finite enforcement ships).
  */
 export async function createService(options: ServiceOptions): Promise<Service> {
   const config = validateServiceConfig(options.config)
@@ -1420,7 +1560,27 @@ export async function createService(options: ServiceOptions): Promise<Service> {
 
   const checkReadiness = (): ReadinessStatus => ({ ready: versions !== null, versions })
 
-  const app = await createServiceApp({ checkReadiness, version: config.version, authMiddleware, repository: resolvedStore, serverSecret: config.serverSecret })
+  // Non-sensitive MySQL readiness probe (mbs-8g5.3.1.5): a trivial round-trip
+  // against the resolved Knex handle. Resolves a boolean and never throws or
+  // logs, so driver/host/credential text can never reach the response.
+  const checkDatabase = async (): Promise<boolean> => {
+    if (!resolvedKnex) return false
+    try {
+      await resolvedKnex.raw('select 1')
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const app = await createServiceApp({
+    checkReadiness,
+    version: config.version,
+    checkDatabase,
+    authMiddleware,
+    repository: resolvedStore,
+    serverSecret: config.serverSecret,
+  })
 
   async function migrate(): Promise<string[]> {
     const target = resolvedKnex ?? options.knex ?? null

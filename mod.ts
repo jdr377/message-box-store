@@ -33,6 +33,7 @@ export type {
   ArchiveBatchResponse,
   ArchiveRecordInput,
   BatchOutcome,
+  Capabilities,
   DeleteEvent,
   HistoryPage,
   HistoryRecord,

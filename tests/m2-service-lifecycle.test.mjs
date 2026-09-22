@@ -74,17 +74,11 @@ test('M2.1a service constructs, gates readiness on migrations, and disposes', as
   assert.equal(ready.status, 200)
   assert.equal(ready.body.status, 'ready')
 
-  // M2.1c/d: mutation and retrieval routes sit behind auth;
-  // unauthenticated callers get 401 before route resolution (no existence
-  // oracle). Capability placeholder remains open 501 until .3.1.5.
+  // M2.1e: liveness/readiness behavior asserted above. M2.1c/d/e: mutation,
+  // retrieval and capability routes sit behind auth; unauthenticated callers
+  // get 401 before route resolution (no existence oracle).
   for (const [method, path] of [
     ['GET', '/v1/history/capabilities'],
-  ]) {
-    const result = await fetchJson(`${base}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: method === 'POST' ? '{}' : undefined })
-    assert.equal(result.status, 501, `${method} ${path}`)
-    assert.equal(result.body.code, 'ERR_UNAVAILABLE')
-  }
-  for (const [method, path] of [
     ['POST', '/v1/history/records'],
     ['PATCH', '/v1/history/records/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/state'],
     ['DELETE', '/v1/history/records/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
@@ -120,6 +114,8 @@ test('M2.1a invalid or missing configuration fails typed and redacted', async ()
     [{ serverSecret: SECRET, mysql: { user: 'u', password: '', database: 'd' } }, 'missing password'],
     [{ serverSecret: SECRET, mysql: { user: 'u', password: PASSWORD, database: 'd' }, retention: '6' }, 'retention below 7'],
     [{ serverSecret: SECRET, mysql: { user: 'u', password: PASSWORD, database: 'd' }, retention: 'sometimes' }, 'bad retention'],
+    [{ serverSecret: SECRET, mysql: { user: 'u', password: PASSWORD, database: 'd' }, retention: '30' }, 'finite retention deferred (mbs-8g5.3.1.5.2)'],
+    [{ serverSecret: SECRET, mysql: { user: 'u', password: PASSWORD, database: 'd' }, retention: 30 }, 'finite numeric retention deferred (mbs-8g5.3.1.5.2)'],
   ]
   for (const [input, label] of cases) {
     await assert.rejects(async () => validateServiceConfig(input), (error) => {
