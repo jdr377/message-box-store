@@ -6,7 +6,13 @@
  * origin/CORS plus early body/batch ingress bounds (mbs-8g5.3.2.1.1),
  * M2.2a.2 finite active-request admission plus pool bounds
  * (mbs-8g5.3.2.1.2), and M2.2a.3 bounded process-local pre-auth IP plus
- * authenticated-identity rate limits (mbs-8g5.3.2.1.3). Server-only subpath: Express route adapter types and the standalone
+ * authenticated-identity rate limits (mbs-8g5.3.2.1.3), and M2.2b.1 bounded
+ * non-overlapping cleanup scheduling (mbs-8g5.3.2.2.1), and M2.2b.2 graceful
+ * shutdown: admission drain, typed 503 for new work, deterministic
+ * cleanup/server/owned-pool teardown (mbs-8g5.3.2.2.2), and M2.2b.3 redacted
+ * operational logs: injectable ServiceLogger with bounded correlation ids over
+ * startup/readiness, request outcome class, cleanup and shutdown
+ * (mbs-8g5.3.2.2.3). Server-only subpath: Express route adapter types and the standalone
  * service live here so browser bundles never include them.
  *
  * Runtime server dependencies (express, auth middleware, sdk, and other
@@ -42,7 +48,11 @@ export type ChangesRoute = (identity: AuthenticatedIdentity, query: Record<strin
 // ingress (exact origins/CORS, early body/batch bounds), M2.2a.2
 // admission (finite active-request bound, finite pool min/max), and
 // M2.2a.3 rate (bounded fixed-window pre-auth IP + identity limiters and
-// the one trusted-proxy parse).
+// the one trusted-proxy parse), plus M2.2b.1 cleanup (the single-run
+// excluded scheduler over the existing M1 bounded purge primitives), and
+// M2.2b.2 graceful shutdown (the shared admission/drain tracker and the
+// deterministic stop/close order), and M2.2b.3 redacted operational logs
+// (the injectable ServiceLogger boundary and bounded correlation ids).
 // Re-exported here so the single `message-box-store/server` subpath owns
 // Express/MySQL/auth construction while browser-safe entrypoints stay free
 // of server code. The Capabilities wire type itself lives on the browser-safe
@@ -78,8 +88,20 @@ export {
   buildCapabilities,
   createFixedWindowRateLimiter,
   createReplayGuard,
+  createCleanupScheduler,
+  createRepositoryCleanup,
+  createAdmissionTracker,
   createService,
   createServiceApp,
+  createConsoleServiceLogger,
+  createNoopServiceLogger,
+  CORRELATION_HEADER,
+  CORRELATION_ID_RE,
+  CLEANUP_INTERVAL_DEFAULT_MS,
+  CLEANUP_INTERVAL_MIN_MS,
+  CLEANUP_OWNERS_MAX,
+  CLEANUP_STOP_DEFAULT_TIMEOUT_MS,
+  SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS,
   loadServiceConfigFromEnv,
   mapRepositoryError,
   parseAllowedOrigins,
@@ -104,4 +126,4 @@ export {
   validateSnapshotPageQuery,
   validateUsageQuery,
 } from './service.js'
-export type { FixedWindowRateLimiter, FixedWindowRateLimiterOptions, RateLimitDecision, ReadinessStatus, ReplayGuard, ReplayGuardOptions, Service, ServiceAppState, ServiceAuthOptions, ServiceConfig, ServiceKnex, ServiceMysqlConfig, ServiceOptions } from './service.js'
+export type { AdmissionTracker, CleanupOutcome, CleanupPassResult, CleanupScheduler, CleanupSchedulerOptions, CleanupStopResult, CleanupTimerApi, FixedWindowRateLimiter, FixedWindowRateLimiterOptions, RateLimitDecision, ReadinessStatus, ReplayGuard, ReplayGuardOptions, RepositoryCleanupOptions, Service, ServiceAppState, ServiceAuthOptions, ServiceConfig, ServiceKnex, ServiceLogEvent, ServiceLogLevel, ServiceLogRecord, ServiceLogger, ServiceMysqlConfig, ServiceOptions } from './service.js'

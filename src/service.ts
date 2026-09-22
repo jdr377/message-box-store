@@ -31,12 +31,27 @@
  * process-local fixed-window post-auth limit keyed by the verified owner
  * identity enforced after the replay window; both bounded with deterministic
  * window expiry and overflow eviction, reusing the M1 per-minute defaults and
- * the typed ERR_RATE_LIMITED envelope). Reuses M1
+ * the typed ERR_RATE_LIMITED envelope), and the M2.2b.1 cleanup scheduler
+ * (mbs-8g5.3.2.2.1: one interval-driven, single-run-excluded pass over the
+ * existing M1 bounded purgeExpiredSnapshots/purgeExpiredChanges primitives
+ * with explicit accepted M1 work bounds, compact redacted outcomes, and a
+ * deterministic stop that cancels future work and waits for or times out an
+ * in-flight run), and the M2.2b.2 graceful shutdown (mbs-8g5.3.2.2.2: a
+ * shared AdmissionTracker that begins drain on stop so new protected work
+ * fails typed 503 while active requests drain under a finite configured
+ * timeout, then closes the HTTP server and destroys an owned Knex pool
+ * exactly once with idempotent memoized stop/close), and the M2.2b.3
+ * redacted operational logs (mbs-8g5.3.2.2.3: one injectable structured
+ * ServiceLogger with correlation ids covering startup/readiness, request
+ * outcome class, cleanup and shutdown — operation names, status/error
+ * codes, durations and bounded counts only, never bodies, keys, identities,
+ * auth/wallet material or connection values; logger failures never fail
+ * requests or cleanup). Reuses M1
  * protocol, limits, cursors, filters, migrations and repository adapters;
- * adds no cleanup or logging (.3.2.2), no
+ * adds no
  * metrics, discovery, pricing, deployment, client synchronization, policy
  * framework, workers, tombstone endpoint, live-send/ack, alternate
- * databases, TLS termination, or new storage behavior.
+ * databases, TLS termination, finite active-record retention, or new storage behavior.
  *
  * Server-only subpath: express/middleware/sdk/knex are loaded lazily so
  * `import 'message-box-store/server'` succeeds in a clean consumer without
@@ -48,7 +63,7 @@ import { LIMITS, PROTOCOL_VERSION, isIdentityKey, isRecordKey, isUint64DecimalSt
 import type { Capabilities } from './protocol.js'
 import type { HistoryRepository } from './storage.js'
 
-export const SERVICE_VERSION = '0.0.0-m2.2a.3'
+export const SERVICE_VERSION = '0.0.0-m2.2b.3'
 export const SERVICE_CONFIG_CODE = 'ERR_STORAGE_CONFIGURATION'
 export const SERVICE_MYSQL_CODE = 'ERR_MYSQL_CONFIG'
 export const SERVICE_MIGRATION_CODE = 'ERR_MIGRATION_STRUCTURE'
@@ -97,6 +112,91 @@ export const AUTH_PROBE_PATH = '/v1/history/auth-context'
 export const ARCHIVE_BATCH_PATH = '/v1/history/records'
 
 /**
+ * M2.2b.3 correlation policy (mbs-8g5.3.2.2.3): clients may supply
+ * `x-mbs-correlation-id` matching a short bounded token; anything else is
+ * replaced with a freshly generated 16-hex id. The value is echoed on the
+ * response and included in request logs only — never trusted as free-form
+ * input, never mixed with auth material, and bounded by the pattern so an
+ * arbitrary-length header cannot become log payload.
+ */
+export const CORRELATION_HEADER = 'x-mbs-correlation-id'
+export const CORRELATION_ID_RE = /^[A-Za-z0-9_-]{8,32}$/
+
+export type ServiceLogLevel = 'debug' | 'info' | 'warn' | 'error'
+export type ServiceLogEvent = 'startup' | 'readiness' | 'request' | 'cleanup' | 'shutdown'
+
+/**
+ * One redacted log record. `fields` carries only operation names, HTTP
+ * method/route patterns, status/error codes, durations and bounded counts —
+ * never bodies, record/message/cursor keys, identities, auth headers or
+ * tokens, wallet/payment material, passwords or connection strings.
+ */
+export interface ServiceLogRecord {
+  level: ServiceLogLevel
+  event: ServiceLogEvent
+  fields: Record<string, string | number | boolean>
+}
+
+/**
+ * Injectable structured logger boundary (M2.2b.3). Every call site is
+ * exception-isolated: a throwing or misbehaving logger can never fail a
+ * request, cleanup pass or shutdown. Defaults: no-op inside
+ * createServiceApp unit probes, console JSON lines for createService.
+ */
+export interface ServiceLogger {
+  log(record: ServiceLogRecord): void
+}
+
+function generateCorrelationId(): string {
+  const bytes = new Uint8Array(8)
+  globalThis.crypto.getRandomValues(bytes)
+  let out = ''
+  for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
+  return out
+}
+
+function resolveCorrelationId(raw: unknown): string {
+  if (typeof raw === 'string' && CORRELATION_ID_RE.test(raw)) return raw
+  return generateCorrelationId()
+}
+
+/** Exception-isolated logger sink. Never throws into the caller. */
+function safeLog(logger: ServiceLogger | undefined, record: ServiceLogRecord): void {
+  if (!logger) return
+  try {
+    logger.log(record)
+  } catch {
+    // Logging failure must never fail requests, cleanup or shutdown.
+  }
+}
+
+export function createNoopServiceLogger(): ServiceLogger {
+  return { log() { /* no-op */ } }
+}
+
+export function createConsoleServiceLogger(): ServiceLogger {
+  return {
+    log(record) {
+      try {
+        const line = JSON.stringify({
+          ts: new Date().toISOString(),
+          level: record.level,
+          event: record.event,
+          fields: record.fields,
+        })
+        if (record.level === 'error' || record.level === 'warn') {
+          console.error(line)
+        } else {
+          console.log(line)
+        }
+      } catch {
+        // Console serialization failures must never propagate.
+      }
+    },
+  }
+}
+
+/**
  * M2.2a.1 exact CORS contract (mbs-8g5.3.2.1.1). Response-headers mirror
  * the pinned BRC-103/BRC-104 request-header contract so an allowed browser
  * origin can both send and verify the signed exchange. Methods cover the
@@ -114,6 +214,7 @@ const CORS_ALLOWED_HEADERS = [
   'x-bsv-auth-signature',
   'x-bsv-auth-request-id',
   'x-bsv-auth-requested-certificates',
+  CORRELATION_HEADER,
 ].join(', ')
 const CORS_EXPOSED_HEADERS = [
   'x-bsv-auth-version',
@@ -124,6 +225,7 @@ const CORS_EXPOSED_HEADERS = [
   'x-bsv-auth-signature',
   'x-bsv-auth-request-id',
   'x-bsv-auth-requested-certificates',
+  CORRELATION_HEADER,
 ].join(', ')
 const CORS_PREFLIGHT_MAX_AGE = '600'
 
@@ -173,6 +275,18 @@ export const RATE_LIMIT_MAX_KEYS = 10_000
  * stay at the much larger M1 profile values (300/1,000).
  */
 export const RATE_LIMIT_MIN_PER_WINDOW = 2
+
+/**
+ * M2.2b.1 cleanup schedule (mbs-8g5.3.2.2.1): one explicit interval with a
+ * one-second floor so a configuration typo cannot become a hot loop, and a
+ * bounded owner list for the per-owner change purge. No job framework, no
+ * distributed lock, no metrics taxonomy.
+ */
+export const CLEANUP_INTERVAL_DEFAULT_MS = 3_600_000
+export const CLEANUP_INTERVAL_MIN_MS = 1_000
+export const CLEANUP_OWNERS_MAX = 64
+export const CLEANUP_STOP_DEFAULT_TIMEOUT_MS = 5_000
+export const SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS = 10_000
 
 export interface FixedWindowRateLimiterOptions {
   /** Admitted requests per window per key. Safe integer >= 1. */
@@ -527,6 +641,28 @@ export interface ServiceConfig {
    * exist.
    */
   trustedProxy: string
+  /**
+   * Explicit cleanup schedule interval in milliseconds (M2.2b.1). Safe
+   * integer >= 1000, default 3_600_000 (one hour). Only this one bounded
+   * pass is scheduled; there is no job framework or distributed lock.
+   */
+  cleanupIntervalMs: number
+  /**
+   * Owners whose expired change rows the scheduled cleanup pass also purges
+   * (M2.2b.1). Exact identity keys only, deduplicated, at most
+   * CLEANUP_OWNERS_MAX entries; empty (the default) means the scheduled pass
+   * runs the global bounded snapshot purge only. Active records stay under
+   * the enforced `permanent` retention policy — change purge compacts only
+   * expired body-free change rows through the existing M1 primitive.
+   */
+  cleanupOwners: readonly string[]
+  /**
+   * Graceful-shutdown drain bound (M2.2b.2): how long stop() waits for
+   * in-flight requests after beginning drain before force-closing remaining
+   * connections. Safe integer >= 0 (0 means no wait), default
+   * SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS.
+   */
+  shutdownDrainTimeoutMs: number
 }
 
 /** Minimal Knex surface the service needs; avoids a hard type dependency. */
@@ -550,6 +686,11 @@ export interface ServiceOptions {
   store?: HistoryRepository
   migrate?: (knex: ServiceKnex) => Promise<string[]>
   auth?: ServiceAuthOptions
+  /**
+   * M2.2b.3 injectable structured logger. Defaults to console JSON lines;
+   * pass a collector (or the no-op) to capture or silence redacted events.
+   */
+  logger?: ServiceLogger
 }
 
 export interface ReadinessStatus {
@@ -564,6 +705,22 @@ export interface Service {
   repository: HistoryRepository
   ownsKnex: boolean
   sessionManager: unknown
+  /**
+   * M2.2b.1 bounded cleanup scheduler (mbs-8g5.3.2.2.1). Started with the
+   * HTTP server, stopped first (before drain/server/pool) by stop().
+   */
+  cleanup: CleanupScheduler
+  /**
+   * M2.2b.2 shared admission/drain tracker (mbs-8g5.3.2.2.2). stop() begins
+   * drain on this instance so new work fails typed 503 while active requests
+   * finish under the configured bound.
+   */
+  admission: AdmissionTracker
+  /**
+   * M2.2b.3 injectable structured logger (mbs-8g5.3.2.2.3) driving the
+   * redacted startup/readiness/request/cleanup/shutdown events.
+   */
+  logger: ServiceLogger
   migrate(): Promise<string[]>
   checkReadiness(): ReadinessStatus
   start(port?: number, host?: string): Promise<import('node:http').Server>
@@ -624,6 +781,18 @@ export interface ServiceAppState {
    * builds the default from configuration when absent.
    */
   identityRateLimiter?: FixedWindowRateLimiter
+  /**
+   * M2.2b.2 admission/drain tracker (mbs-8g5.3.2.2.2). When absent,
+   * createServiceApp builds a private default; createService always injects
+   * its own so start/stop share the same tracker as the middleware.
+   */
+  admission?: AdmissionTracker
+  /**
+   * M2.2b.3 redacted operational logger (mbs-8g5.3.2.2.3). Absent means
+   * no-op so unit probes stay silent; createService injects its console
+   * (or caller-supplied) logger here.
+   */
+  logger?: ServiceLogger
 }
 
 function configError(message: string, code: string = SERVICE_CONFIG_CODE): Error {
@@ -773,6 +942,69 @@ function parseMysqlPool(value: unknown): { min: number; max: number } {
 }
 
 /**
+ * M2.2b.1 explicit cleanup interval (mbs-8g5.3.2.2.1): a safe integer floor
+ * of CLEANUP_INTERVAL_MIN_MS so a configuration typo cannot become a hot
+ * loop, defaulting to one hour. Generic typed message; never echoes input.
+ */
+function parseCleanupInterval(value: unknown): number {
+  if (value === undefined || value === null || value === '') return CLEANUP_INTERVAL_DEFAULT_MS
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    throw configError('cleanupIntervalMs must be an integer of at least 1000')
+  }
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < CLEANUP_INTERVAL_MIN_MS) {
+    throw configError('cleanupIntervalMs must be an integer of at least 1000')
+  }
+  return parsed
+}
+
+/**
+ * M2.2b.1 cleanup owner list (mbs-8g5.3.2.2.1): an exact list or comma list
+ * of identity keys, deduplicated and capped at CLEANUP_OWNERS_MAX so the
+ * per-owner change purge stays bounded per pass. Empty/absent resolves to the
+ * snapshot-only default. Generic typed messages; the supplied values are
+ * never echoed.
+ */
+function parseCleanupOwners(value: unknown): readonly string[] {
+  if (value === undefined || value === null || value === '') return Object.freeze([])
+  const entries = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : null
+  if (entries === null) throw configError('cleanupOwners must be identity keys')
+  const owners = new Set<string>()
+  for (const entry of entries) {
+    if (typeof entry !== 'string') throw configError('cleanupOwners must be identity keys')
+    const candidate = entry.trim()
+    if (candidate.length === 0) continue
+    if (!isIdentityKey(candidate)) throw configError('cleanupOwners must be identity keys')
+    owners.add(candidate)
+    if (owners.size > CLEANUP_OWNERS_MAX) {
+      throw configError(`cleanupOwners accepts at most ${CLEANUP_OWNERS_MAX} identity keys`)
+    }
+  }
+  return Object.freeze([...owners])
+}
+
+/**
+ * M2.2b.2 shutdown drain timeout (mbs-8g5.3.2.2.2): a non-negative safe
+ * integer (0 = no drain wait) defaulting to SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS.
+ * Generic typed message; never echoes the input.
+ */
+function parseShutdownDrainTimeout(value: unknown): number {
+  if (value === undefined || value === null || value === '') return SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    throw configError('shutdownDrainTimeoutMs must be a non-negative integer')
+  }
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw configError('shutdownDrainTimeoutMs must be a non-negative integer')
+  }
+  return parsed
+}
+
+/**
  * Validate raw config input. Never echoes secrets: messages are generic and
  * never interpolate serverSecret, password, user, host or database values.
  */
@@ -808,6 +1040,9 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
     'authRatePerMinPerIdentity must be an integer of at least 2',
   )
   const trustedProxy = parseTrustedProxy(input['trustedProxy'])
+  const cleanupIntervalMs = parseCleanupInterval(input['cleanupIntervalMs'])
+  const cleanupOwners = parseCleanupOwners(input['cleanupOwners'])
+  const shutdownDrainTimeoutMs = parseShutdownDrainTimeout(input['shutdownDrainTimeoutMs'])
   let retention: 'permanent' = 'permanent'
   try {
     retention = parseRetentionDays(input['retention'] ?? input['retentionDays'])
@@ -827,6 +1062,9 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
     preAuthRatePerMinPerIp,
     authRatePerMinPerIdentity,
     trustedProxy,
+    cleanupIntervalMs,
+    cleanupOwners,
+    shutdownDrainTimeoutMs,
   }
 }
 
@@ -849,6 +1087,9 @@ export function loadServiceConfigFromEnv(env: Record<string, string | undefined>
     preAuthRatePerMinPerIp: env['MESSAGE_BOX_STORE_PRE_AUTH_RATE_PER_MIN_PER_IP'],
     authRatePerMinPerIdentity: env['MESSAGE_BOX_STORE_AUTH_RATE_PER_MIN_PER_IDENTITY'],
     trustedProxy: env['MESSAGE_BOX_STORE_TRUSTED_PROXY'],
+    cleanupIntervalMs: env['MESSAGE_BOX_STORE_CLEANUP_INTERVAL_MS'],
+    cleanupOwners: env['MESSAGE_BOX_STORE_CLEANUP_OWNERS'],
+    shutdownDrainTimeoutMs: env['MESSAGE_BOX_STORE_SHUTDOWN_DRAIN_TIMEOUT_MS'],
   })
 }
 
@@ -1482,8 +1723,379 @@ export function mapRepositoryError(error: unknown): { status: number; code: stri
   return { status: 500, code: SERVICE_INTERNAL_CODE, description: 'internal error' }
 }
 
+/**
+ * M2.2b.1 bounded cleanup pass result (mbs-8g5.3.2.2.1). Counts are bounded
+ * non-negative safe integers and `hasMore` is the conservative M1
+ * continuation flag. Never carries rows, keys, owners, cursors, ciphertext,
+ * auth material or connection detail.
+ */
+export interface CleanupPassResult {
+  purgedSnapshots: number
+  purgedItems: number
+  purgedChanges: number
+  hasMore: boolean
+}
+
+/**
+ * Compact per-run outcome. Success carries only bounded counts; failure
+ * carries only a redacted typed `ERR_*` code (driver, host, credential and
+ * message text are never propagated) so errors and callbacks cannot leak
+ * ciphertext, auth or database detail.
+ */
+export interface CleanupOutcome {
+  ok: boolean
+  durationMs: number
+  purgedSnapshots: number
+  purgedItems: number
+  purgedChanges: number
+  hasMore: boolean
+  errorCode?: string
+}
+
+/** Timer seam so fake-clock tests own scheduling and stop timeouts. */
+export interface CleanupTimerApi {
+  setTimeout(handler: () => void, ms: number): unknown
+  clearTimeout(handle: unknown): void
+}
+
+export interface CleanupSchedulerOptions {
+  /** Explicit interval between passes. Positive safe integer. */
+  intervalMs: number
+  /** One bounded cleanup pass. Rejects with a typed/redacted failure. */
+  run: () => Promise<CleanupPassResult>
+  /** Receives every compact outcome; throwing here never fails the run. */
+  onOutcome?: (outcome: CleanupOutcome) => void
+  /** Test seam for deterministic fake clocks. Defaults to global timers. */
+  timers?: CleanupTimerApi
+}
+
+export interface CleanupStopResult {
+  /** A pending future run was cancelled by this stop. */
+  cancelled: boolean
+  /** The in-flight run settled inside the stop timeout. */
+  drained: boolean
+}
+
+export interface CleanupScheduler {
+  /** Begin interval scheduling. Idempotent while started. */
+  start(): void
+  /**
+   * Explicit manual pass: joins the in-flight run when one exists (never
+   * overlaps) and returns null once stopped, so shutdown excludes future
+   * cleanup work.
+   */
+  runNow(): Promise<CleanupOutcome | null>
+  /**
+   * Deterministic stop: cancel pending future work, then wait for the
+   * in-flight run up to `timeoutMs` (default
+   * CLEANUP_STOP_DEFAULT_TIMEOUT_MS, 0 means no wait). Always resolves.
+   */
+  stop(args?: { timeoutMs?: number }): Promise<CleanupStopResult>
+  /** True while a pass is executing (tests/observability). */
+  isRunning(): boolean
+}
+
+let m1PurgeBoundsPromise: Promise<{ batch: number; maxItems: number; maxSnapshots: number }> | null = null
+
+/**
+ * Accepted M1 purge work bounds (mbs-8g5.2.3.3.1), read once from the
+ * frozen snapshots module so every scheduled invocation passes the exact
+ * bounds the M1 adapters clamp to instead of relying on silent defaults.
+ */
+function m1PurgeBounds(): Promise<{ batch: number; maxItems: number; maxSnapshots: number }> {
+  m1PurgeBoundsPromise ??= (async () => {
+    // @ts-ignore - M1 snapshots module is frozen .mjs; constants only
+    const snapshots = await import('./snapshots.mjs') as {
+      SNAPSHOT_PURGE_BATCH: number
+      SNAPSHOT_PURGE_MAX_ITEMS_PER_CALL: number
+      SNAPSHOT_PURGE_MAX_SNAPSHOTS_PER_CALL: number
+    }
+    return {
+      batch: snapshots.SNAPSHOT_PURGE_BATCH,
+      maxItems: snapshots.SNAPSHOT_PURGE_MAX_ITEMS_PER_CALL,
+      maxSnapshots: snapshots.SNAPSHOT_PURGE_MAX_SNAPSHOTS_PER_CALL,
+    }
+  })()
+  return m1PurgeBoundsPromise
+}
+
+function toBoundedCount(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0
+}
+
+/**
+ * Redact a cleanup failure to the service's own typed `ERR_*` namespace.
+ * Driver/host/credential codes and every message string are dropped: anything
+ * outside /^ERR_[A-Z0-9_]{1,64}$/ degrades to the generic unavailable code.
+ */
+function safeCleanupErrorCode(error: unknown): string {
+  const code = error !== null && typeof error === 'object' ? (error as { code?: unknown }).code : undefined
+  if (typeof code === 'string' && /^ERR_[A-Z0-9_]{1,64}$/.test(code)) return code
+  return SERVICE_UNAVAILABLE_CODE
+}
+
+export interface RepositoryCleanupOptions {
+  /** Validated owners for the per-owner change purge. Empty = snapshots only. */
+  owners?: readonly string[]
+  /** Clock seam for deterministic `nowIso` stamps in tests. */
+  nowIso?: () => string
+}
+
+/**
+ * Compose one bounded pass over the existing M1 cleanup primitives
+ * (mbs-8g5.3.2.2.1): the global expired-snapshot purge plus, for each
+ * configured owner, the expired-change purge. Both calls pass the accepted
+ * M1 work bounds explicitly. The pass compacts only expired snapshot/change
+ * rows — active records remain under the enforced `permanent` retention
+ * policy, and no finite active-record retention is introduced. One failing
+ * primitive fails the pass; the scheduler's interval (never a parallel
+ * retry) drives the next attempt.
+ */
+export function createRepositoryCleanup(
+  repository: Pick<HistoryRepository, 'purgeExpiredSnapshots' | 'purgeExpiredChanges'>,
+  options: RepositoryCleanupOptions = {},
+): () => Promise<CleanupPassResult> {
+  const owners = [...(options.owners ?? [])]
+  const nowIso = options.nowIso ?? (() => new Date().toISOString())
+  return async function runCleanupPass(): Promise<CleanupPassResult> {
+    const stamp = nowIso()
+    const bounds = await m1PurgeBounds()
+    const snapshots = await repository.purgeExpiredSnapshots({
+      nowIso: stamp,
+      batchSize: bounds.batch,
+      maxItems: bounds.maxItems,
+      maxSnapshots: bounds.maxSnapshots,
+    })
+    let purgedChanges = 0
+    let changesHaveMore = false
+    for (const owner of owners) {
+      const changes = await repository.purgeExpiredChanges({
+        owner,
+        nowIso: stamp,
+        batchSize: bounds.batch,
+        maxItems: bounds.maxItems,
+      })
+      purgedChanges += toBoundedCount(changes.purgedChanges)
+      changesHaveMore = changesHaveMore || changes.hasMore === true
+    }
+    return {
+      purgedSnapshots: toBoundedCount(snapshots.purgedSnapshots),
+      purgedItems: toBoundedCount(snapshots.purgedItems),
+      purgedChanges,
+      hasMore: snapshots.hasMore === true || changesHaveMore,
+    }
+  }
+}
+
+/**
+ * M2.2b.1 single-run-excluded cleanup scheduler (mbs-8g5.3.2.2.1). One
+ * explicit interval, one in-flight pass at most: a tick or manual trigger
+ * that fires while a pass runs joins the in-flight promise instead of
+ * starting a second pass, and the next tick is scheduled only after the
+ * current pass settles — so failures advance on the ordinary interval and
+ * can never create parallel retries. `stop` cancels pending future work and
+ * waits for the in-flight pass up to a finite timeout, always resolving.
+ * Outcomes are compact and redacted; the optional outcome callback is
+ * exception-isolated so observability can never fail cleanup.
+ */
+export function createCleanupScheduler(options: CleanupSchedulerOptions): CleanupScheduler {
+  const { intervalMs } = options
+  if (!Number.isSafeInteger(intervalMs) || intervalMs < 1) {
+    throw new TypeError('cleanup scheduler intervalMs must be a positive safe integer')
+  }
+  if (typeof options.run !== 'function') {
+    throw new TypeError('cleanup scheduler run must be a function')
+  }
+  const timers: CleanupTimerApi = options.timers ?? {
+    setTimeout: (handler, ms) => globalThis.setTimeout(handler, ms),
+    clearTimeout: (handle) => {
+      if (handle !== null && handle !== undefined) {
+        globalThis.clearTimeout(handle as Parameters<typeof globalThis.clearTimeout>[0])
+      }
+    },
+  }
+  let stopped = true
+  let timer: unknown = null
+  let currentRun: Promise<CleanupOutcome> | null = null
+
+  const emit = (outcome: CleanupOutcome): void => {
+    if (!options.onOutcome) return
+    try {
+      options.onOutcome(outcome)
+    } catch {
+      // Outcome callbacks (logging) must never fail cleanup.
+    }
+  }
+
+  const execute = (): Promise<CleanupOutcome> => {
+    if (currentRun) return currentRun
+    const startedAt = Date.now()
+    const promise = (async (): Promise<CleanupOutcome> => {
+      try {
+        const result = await options.run()
+        return {
+          ok: true,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          purgedSnapshots: toBoundedCount(result.purgedSnapshots),
+          purgedItems: toBoundedCount(result.purgedItems),
+          purgedChanges: toBoundedCount(result.purgedChanges),
+          hasMore: result.hasMore === true,
+        }
+      } catch (error) {
+        return {
+          ok: false,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          purgedSnapshots: 0,
+          purgedItems: 0,
+          purgedChanges: 0,
+          hasMore: false,
+          errorCode: safeCleanupErrorCode(error),
+        }
+      }
+    })()
+    currentRun = promise
+    void promise.then((outcome) => {
+      if (currentRun === promise) currentRun = null
+      emit(outcome)
+    })
+    return promise
+  }
+
+  const scheduleNext = (): void => {
+    if (stopped || timer !== null) return
+    timer = timers.setTimeout(onTick, intervalMs)
+  }
+
+  const onTick = (): void => {
+    timer = null
+    if (stopped) return
+    void execute().then(scheduleNext, scheduleNext)
+  }
+
+  return {
+    start(): void {
+      if (!stopped) return
+      stopped = false
+      scheduleNext()
+    },
+    async runNow(): Promise<CleanupOutcome | null> {
+      if (stopped) return null
+      return execute()
+    },
+    async stop(args?: { timeoutMs?: number }): Promise<CleanupStopResult> {
+      const timeoutMs = args?.timeoutMs ?? CLEANUP_STOP_DEFAULT_TIMEOUT_MS
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) {
+        throw new TypeError('cleanup stop timeoutMs must be a non-negative safe integer')
+      }
+      const cancelled = timer !== null
+      stopped = true
+      if (timer !== null) {
+        timers.clearTimeout(timer)
+        timer = null
+      }
+      const inflight = currentRun
+      if (!inflight) return { cancelled, drained: true }
+      if (timeoutMs === 0) return { cancelled, drained: false }
+      const drained = await new Promise<boolean>((resolve) => {
+        let settled = false
+        let timeoutHandle: unknown = null
+        const finish = (value: boolean): void => {
+          if (settled) return
+          settled = true
+          if (timeoutHandle !== null) timers.clearTimeout(timeoutHandle)
+          resolve(value)
+        }
+        timeoutHandle = timers.setTimeout(() => finish(false), timeoutMs)
+        void inflight.then(() => finish(true), () => finish(true))
+      })
+      return { cancelled, drained }
+    },
+    isRunning: () => currentRun !== null,
+  }
+}
+
 function placeholderError(description: string): { status: 'error'; code: string; description: string } {
   return { status: 'error', code: SERVICE_UNAVAILABLE_CODE, description }
+}
+
+/**
+ * M2.2b.2 process-local admission/drain tracker (mbs-8g5.3.2.2.2). One
+ * bounded active-slot counter shared by the admission middleware and
+ * stop(): tryAcquire fails while draining or at the bound (the middleware
+ * maps that to the typed 503 without counting the rejection), release fires
+ * exactly once per admitted request, and waitIdle resolves true when active
+ * hits zero or false on timeout. No distributed coordination, no logging.
+ */
+export interface AdmissionTracker {
+  tryAcquire(limit: number): boolean
+  release(): void
+  beginDrain(): void
+  clearDrain(): void
+  isDraining(): boolean
+  active(): number
+  waitIdle(timeoutMs: number): Promise<boolean>
+}
+
+export function createAdmissionTracker(): AdmissionTracker {
+  let active = 0
+  let draining = false
+  const idleWaiters = new Set<() => void>()
+  const notifyIdle = (): void => {
+    if (active > 0) return
+    const waiters = [...idleWaiters]
+    idleWaiters.clear()
+    for (const resolve of waiters) resolve()
+  }
+  return {
+    tryAcquire(limit: number): boolean {
+      if (draining) return false
+      if (active >= limit) return false
+      active += 1
+      return true
+    },
+    release(): void {
+      if (active <= 0) return
+      active -= 1
+      notifyIdle()
+    },
+    beginDrain(): void {
+      draining = true
+    },
+    clearDrain(): void {
+      draining = false
+    },
+    isDraining(): boolean {
+      return draining
+    },
+    active(): number {
+      return active
+    },
+    waitIdle(timeoutMs: number): Promise<boolean> {
+      if (active === 0) return Promise.resolve(true)
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) return Promise.resolve(false)
+      return new Promise((resolve) => {
+        let settled = false
+        let timer: ReturnType<typeof setTimeout> | null = null
+        const waiter = (): void => {
+          if (settled) return
+          settled = true
+          idleWaiters.delete(waiter)
+          if (timer !== null) clearTimeout(timer)
+          resolve(true)
+        }
+        idleWaiters.add(waiter)
+        timer = setTimeout(() => {
+          if (settled) return
+          settled = true
+          idleWaiters.delete(waiter)
+          resolve(false)
+        }, timeoutMs)
+        if (typeof (timer as { unref?: () => void }).unref === 'function') {
+          ;(timer as { unref: () => void }).unref()
+        }
+      })
+    },
+  }
 }
 
 async function defaultMigrate(knex: ServiceKnex): Promise<string[]> {
@@ -1584,7 +2196,10 @@ async function defaultCreateAuthMiddleware(args: { wallet: unknown; sessionManag
  * request releases its slot exactly once on response finish or connection
  * close — success, typed failures, thrown errors and client aborts all
  * terminate in one of those events. Process-local by design: no cleanup or
- * logging taxonomy, no distributed coordination.
+ * logging taxonomy, no distributed coordination. M2.2b.2
+ * (mbs-8g5.3.2.2.2) reuses the same tracker for shutdown drain: once stop()
+ * begins, new work fails the identical typed 503 while in-flight requests
+ * finish.
  *
  * M2.2a.3 rate (mbs-8g5.3.2.1.3): two process-local aligned fixed-window
  * limiters over the accepted M1 per-minute defaults. The pre-auth limiter
@@ -1611,6 +2226,58 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
   const { default: express } = (await import('express')) as unknown as { default: typeof import('express') }
   const app = express()
   app.disable('x-powered-by')
+  const logger = state.logger
+
+  // M2.2b.3 correlation id (mbs-8g5.3.2.2.3): first middleware so every
+  // response (success, typed failure, 404, early ingress rejection) carries
+  // a bounded id. A client-supplied value is accepted only when it matches
+  // the short token pattern; anything else is replaced with a generated
+  // 16-hex id so arbitrary-length input never becomes log payload. The id
+  // is echoed on the response and attached to the request for the request
+  // log below; it is not an authentication signal.
+  app.use((req, res, next) => {
+    const inbound = req.headers[CORRELATION_HEADER]
+    const correlationId = resolveCorrelationId(Array.isArray(inbound) ? inbound[0] : inbound)
+    res.setHeader(CORRELATION_HEADER, correlationId)
+    ;(req as Request & { correlationId?: string }).correlationId = correlationId
+    next()
+  })
+
+  // M2.2b.3 request outcome log: one redacted record per response with the
+  // matched route pattern (never concrete path/query params, bodies or
+  // identity), status class, optional typed error code, duration and the
+  // correlation id. finish/close double-fire is guarded exactly like the
+  // admission release. Logger failures are swallowed by safeLog.
+  app.use((req, res, next) => {
+    const startedAt = Date.now()
+    let logged = false
+    const emit = (): void => {
+      if (logged) return
+      logged = true
+      const route = (req as { route?: { path?: unknown } }).route
+      const routePath = route !== undefined && route !== null && typeof route.path === 'string'
+        ? route.path
+        : 'unknown'
+      const status = res.statusCode
+      const code = (res as Response & { mbsErrorCode?: string }).mbsErrorCode
+      const correlationId = (req as Request & { correlationId?: string }).correlationId ?? ''
+      safeLog(logger, {
+        level: status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info',
+        event: 'request',
+        fields: {
+          method: req.method,
+          route: routePath,
+          status,
+          durationMs: Math.max(0, Date.now() - startedAt),
+          ...(typeof code === 'string' && code.length > 0 ? { code } : {}),
+          ...(correlationId.length > 0 ? { correlationId } : {}),
+        },
+      })
+    }
+    res.on('finish', emit)
+    res.on('close', emit)
+    next()
+  })
 
   // M2.2a.1 exact origin/CORS gate (first middleware, mbs-8g5.3.2.1.1):
   // absent Origin keeps the private non-browser contract (proceed with no
@@ -1708,21 +2375,22 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
   // releases its slot exactly once on response finish or connection close —
   // success, typed failures and thrown errors all terminate in one of those
   // two events, and client aborts fire close. The released-flag guard makes
-  // double events (finish then close) safe. Process-local by design: no
-  // cleanup or logging taxonomy, no distributed coordination.
+  // double events (finish then close) safe. M2.2b.2 (mbs-8g5.3.2.2.2): the
+  // shared AdmissionTracker also rejects new work once stop() begins drain —
+  // the same typed 503, without counting the rejection. Process-local by
+  // design: no cleanup or logging taxonomy, no distributed coordination.
+  const admission = state.admission ?? createAdmissionTracker()
   const maxConcurrentRequests = state.maxConcurrentRequests ?? LIMITS.MAX_CONCURRENT_REQUESTS
-  let activeRequests = 0
   app.use((_req, res, next) => {
-    if (activeRequests >= maxConcurrentRequests) {
+    if (!admission.tryAcquire(maxConcurrentRequests)) {
       next(authError(503, SERVICE_UNAVAILABLE_CODE, 'service unavailable'))
       return
     }
-    activeRequests += 1
     let released = false
     const release = (): void => {
       if (released) return
       released = true
-      activeRequests -= 1
+      admission.release()
     }
     res.on('finish', release)
     res.on('close', release)
@@ -1764,8 +2432,21 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
   // saturation. Liveness above stays dependency-free, invokes neither check
   // and bypasses admission entirely.
   app.get('/ready', async (_req: Request, res: Response) => {
+    const startedAt = Date.now()
     const readiness = state.checkReadiness()
+    const logReadiness = (ready: boolean): void => {
+      safeLog(logger, {
+        level: ready ? 'info' : 'warn',
+        event: 'readiness',
+        fields: {
+          ready,
+          migrationsVerified: readiness.ready,
+          durationMs: Math.max(0, Date.now() - startedAt),
+        },
+      })
+    }
     if (!readiness.ready) {
+      logReadiness(false)
       res.status(503).json(placeholderError('service not ready: migrations not verified'))
       return
     }
@@ -1778,9 +2459,11 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
       }
     }
     if (!databaseReady) {
+      logReadiness(false)
       res.status(503).json(placeholderError('service not ready: database unavailable'))
       return
     }
+    logReadiness(true)
     res.status(200).json({ status: 'ready', version: state.version })
   })
 
@@ -2203,6 +2886,12 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
   app.use((err: unknown, _req: Request, res: Response, _next: unknown) => {
     const statusCode = (err as { statusCode?: unknown })?.statusCode
     const code = (err as { code?: unknown })?.code
+    // M2.2b.3: stamp only a schema-shaped ERR_* code onto the response for
+    // the request outcome log; free-form messages and non-ERR codes are
+    // never attached or echoed.
+    if (typeof code === 'string' && /^ERR_[A-Z0-9_]{1,64}$/.test(code)) {
+      ;(res as Response & { mbsErrorCode?: string }).mbsErrorCode = code
+    }
     if (Number.isSafeInteger(statusCode) && typeof code === 'string') {
       if (statusCode === 401) {
         res.status(401).json({ status: 'error', code, description: 'authentication required' })
@@ -2303,12 +2992,52 @@ export async function createService(options: ServiceOptions): Promise<Service> {
   const resolvedStore = repository as HistoryRepository
   let versions: string[] | null = null
   let server: import('node:http').Server | null = null
+  let stopPromise: Promise<void> | null = null
+  let closePromise: Promise<void> | null = null
+
+  // M2.2b.2 shared drain tracker (mbs-8g5.3.2.2.2): the same instance is
+  // injected into createServiceApp's admission middleware and driven by
+  // stop(), so beginning drain rejects new work while active requests drain.
+  const admission = createAdmissionTracker()
+
+  // M2.2b.3 redacted operational logs (mbs-8g5.3.2.2.3): one injectable
+  // structured logger. Default is console JSON lines; options.logger
+  // overrides for collectors and quiet unit probes. Every emit goes through
+  // safeLog so a throwing logger can never fail lifecycle work.
+  const logger = options.logger ?? createConsoleServiceLogger()
 
   const sessionManager = options.auth?.sessionManager ?? await defaultCreateSessionManager()
   const wallet = options.auth?.wallet ?? await defaultCreateServerWallet()
   const authMiddleware = await defaultCreateAuthMiddleware({ wallet, sessionManager })
 
   const checkReadiness = (): ReadinessStatus => ({ ready: versions !== null, versions })
+
+  // M2.2b.1 bounded cleanup (mbs-8g5.3.2.2.1): one interval-driven pass over
+  // the existing M1 purge primitives with the accepted M1 work bounds. The
+  // scheduler starts with the HTTP server and is stopped first by stop(),
+  // before drain/server/pool teardown, so no cleanup work can begin during or
+  // after shutdown. M2.2b.3: every outcome is forwarded to the injectable
+  // logger as a compact redacted record (bounded counts or a typed ERR_*
+  // code only); the scheduler already isolates the callback.
+  const cleanup = createCleanupScheduler({
+    intervalMs: config.cleanupIntervalMs,
+    run: createRepositoryCleanup(resolvedStore, { owners: config.cleanupOwners }),
+    onOutcome: (outcome) => {
+      safeLog(logger, {
+        level: outcome.ok ? 'info' : 'error',
+        event: 'cleanup',
+        fields: {
+          ok: outcome.ok,
+          durationMs: outcome.durationMs,
+          purgedSnapshots: outcome.purgedSnapshots,
+          purgedItems: outcome.purgedItems,
+          purgedChanges: outcome.purgedChanges,
+          hasMore: outcome.hasMore,
+          ...(outcome.errorCode === undefined ? {} : { errorCode: outcome.errorCode }),
+        },
+      })
+    },
+  })
 
   // Non-sensitive MySQL readiness probe (mbs-8g5.3.1.5): a trivial round-trip
   // against the resolved Knex handle. Resolves a boolean and never throws or
@@ -2335,6 +3064,8 @@ export async function createService(options: ServiceOptions): Promise<Service> {
     preAuthRatePerMinPerIp: config.preAuthRatePerMinPerIp,
     authRatePerMinPerIdentity: config.authRatePerMinPerIdentity,
     trustedProxy: config.trustedProxy,
+    admission,
+    logger,
   })
 
   async function migrate(): Promise<string[]> {
@@ -2355,27 +3086,90 @@ export async function createService(options: ServiceOptions): Promise<Service> {
 
   async function start(port = 0, host = '127.0.0.1'): Promise<import('node:http').Server> {
     if (server) return server
+    stopPromise = null
+    closePromise = null
+    admission.clearDrain()
     server = await new Promise<import('node:http').Server>((resolve, reject) => {
       const created = app.listen(port, host, () => resolve(created))
       created.once('error', reject)
     })
+    cleanup.start()
+    const address = server.address()
+    const boundPort = address !== null && typeof address === 'object' ? address.port : port
+    safeLog(logger, {
+      level: 'info',
+      event: 'startup',
+      fields: {
+        port: boundPort,
+        host,
+        version: config.version,
+        drainTimeoutMs: config.shutdownDrainTimeoutMs,
+        cleanupIntervalMs: config.cleanupIntervalMs,
+      },
+    })
     return server
   }
 
-  async function stop(): Promise<void> {
-    if (!server) return
+  // M2.2b.2 deterministic shutdown (mbs-8g5.3.2.2.2): begin drain (new work
+  // fails typed 503 without being counted), stop cleanup, wait for active
+  // requests up to the configured bound, then close the HTTP server — idle
+  // sockets via closeIdleConnections when drained, force-closed via
+  // closeAllConnections on timeout — before any pool teardown. Memoized so
+  // concurrent/repeated stop() calls share one ordered pass. Idempotent.
+  async function performStop(): Promise<void> {
+    const startedAt = Date.now()
+    admission.beginDrain()
+    await cleanup.stop()
+    const drained = await admission.waitIdle(config.shutdownDrainTimeoutMs)
     const closing = server
     server = null
-    await new Promise<void>((resolve, reject) => {
-      closing.close((error?: Error) => (error ? reject(error) : resolve()))
+    if (closing) {
+      const closed = new Promise<void>((resolve, reject) => {
+        closing.close((error?: Error) => (error ? reject(error) : resolve()))
+      })
+      let forceTimer: ReturnType<typeof setTimeout> | null = null
+      if (drained) {
+        closing.closeIdleConnections()
+        if (config.shutdownDrainTimeoutMs > 0) {
+          forceTimer = setTimeout(() => closing.closeAllConnections(), config.shutdownDrainTimeoutMs)
+          if (typeof (forceTimer as { unref?: () => void }).unref === 'function') {
+            ;(forceTimer as { unref: () => void }).unref()
+          }
+        }
+      } else {
+        closing.closeAllConnections()
+      }
+      try {
+        await closed
+      } finally {
+        if (forceTimer !== null) clearTimeout(forceTimer)
+      }
+    }
+    safeLog(logger, {
+      level: drained ? 'info' : 'warn',
+      event: 'shutdown',
+      fields: {
+        drained,
+        hadServer: closing !== null,
+        durationMs: Math.max(0, Date.now() - startedAt),
+        drainTimeoutMs: config.shutdownDrainTimeoutMs,
+      },
     })
   }
 
-  async function close(): Promise<void> {
-    await stop()
-    if (ownsKnex && resolvedKnex) {
-      await resolvedKnex.destroy()
-    }
+  const stop = (): Promise<void> => {
+    stopPromise ??= performStop()
+    return stopPromise
+  }
+
+  const close = (): Promise<void> => {
+    closePromise ??= (async () => {
+      await stop()
+      if (ownsKnex && resolvedKnex) {
+        await resolvedKnex.destroy()
+      }
+    })()
+    return closePromise
   }
 
   return {
@@ -2385,6 +3179,9 @@ export async function createService(options: ServiceOptions): Promise<Service> {
     repository: resolvedStore,
     ownsKnex,
     sessionManager,
+    cleanup,
+    admission,
+    logger,
     migrate,
     checkReadiness,
     start,

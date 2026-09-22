@@ -63,7 +63,10 @@
     "test:m0": "node --test tests/m0-*.test.mjs",
     "test:m1": "node scripts/run-tests.mjs m1 tests/m1-*.test.mjs",
     "test:m1:mysql": "node --test --test-concurrency=1 tests/m1-feeds.test.mjs tests/m1-idempotency.test.mjs tests/m1-protocol-conformance.test.mjs tests/m1-repository.mysql.test.mjs tests/m1-snapshot-binding.test.mjs tests/m1-snapshots.test.mjs",
-    "test:pack": "node scripts/pack-verify.mjs"
+    "test:pack": "node scripts/pack-verify.mjs",
+    "start": "node scripts/ops.mjs start",
+    "migrate": "node scripts/ops.mjs migrate",
+    "config:check": "node scripts/ops.mjs check-config"
   },
   "dependencies": {
     "@bsv/auth-express-middleware": "2.2.3",
