@@ -1,8 +1,36 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 
 import { checksumMigration, EXPECTED_MIGRATION_CHECKSUMS, verifyMigrationChecksums } from '../src/migrations.mjs'
 import { initializeMysqlUtcSession, isDeadlockError, withDeadlockRetry } from '../src/repository.mysql.mjs'
+import * as repositoryContract from '../src/repository-contract.mjs'
+import * as repository from '../src/repository.mjs'
+
+test('M1 memory repository preserves its established shared-helper exports', () => {
+  for (const name of [
+    'canonicalParamsHash',
+    'createOwnerLocks',
+    'idempotencyConflict',
+    'nextSequenceString',
+    'parseEpochGeneration',
+    'rotateOwnerEpoch',
+    'sameImmutableRecord',
+    'validateArchiveInput',
+    'validateIdempotencyInput',
+    'validateStateMutationInput',
+  ]) {
+    assert.equal(repository[name], repositoryContract[name], name)
+  }
+})
+
+test('M1 SQL adapters import shared rules without loading the memory repository', () => {
+  for (const name of ['repository.mysql.mjs', 'repository.sqlite.mjs']) {
+    const source = readFileSync(new URL(`../src/${name}`, import.meta.url), 'utf8')
+    assert.match(source, /from '\.\/repository-contract\.mjs'/)
+    assert.doesNotMatch(source, /from '\.\/repository\.mjs'/)
+  }
+})
 
 function deadlock() {
   const error = new Error('Deadlock found when trying to get lock')

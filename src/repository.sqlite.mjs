@@ -34,7 +34,7 @@ import {
   validateArchiveInput,
   validateIdempotencyInput,
   validateStateMutationInput,
-} from './repository.mjs'
+} from './repository-contract.mjs'
 import {
   assertNoInternalRetentionGap,
   assertNoRetentionGap,

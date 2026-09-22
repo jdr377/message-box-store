@@ -35,6 +35,38 @@ async function freshStores() {
   return { mem, sqlite }
 }
 
+test('M1 shared archive contract preserves rejection and conflict outcomes across adapters', async (t) => {
+  const sqlite = await createSqliteStore()
+  t.after(() => sqlite.close())
+  for (const [index, store] of [createMemoryStore(), sqlite].entries()) {
+    const owner = `02${(index === 0 ? 'a4' : 'a5').repeat(32)}`
+    const peer = `03${'b4'.repeat(32)}`
+    const valid = record({ messageId: `contract-${index}`, sender: owner, recipient: peer })
+
+    const invalidOwner = await store.archiveBatch({ owner: 'invalid-owner', epoch: 'gen-1', records: [valid] })
+    assert.deepEqual(
+      { outcome: invalidOwner.outcomes[0].outcome, errorCode: invalidOwner.outcomes[0].errorCode },
+      { outcome: 'invalid', errorCode: 'ERR_INVALID_RECORD' },
+    )
+
+    for (const forged of [
+      { ...valid, messageId: `forged-key-${index}`, recordKey: 'f'.repeat(64) },
+      { ...valid, messageId: `forged-hash-${index}`, bodyHash: 'e'.repeat(64) },
+      { ...valid, messageId: `invalid-state-${index}`, deliveryState: 'accepted' },
+    ]) {
+      const rejected = await store.archiveBatch({ owner, epoch: 'gen-1', records: [forged] })
+      assert.equal(rejected.outcomes[0].outcome, 'invalid')
+      assert.equal(rejected.outcomes[0].errorCode, 'ERR_INVALID_RECORD')
+    }
+
+    const first = await store.archiveBatch({ owner, epoch: 'gen-1', records: [valid] })
+    assert.equal(first.outcomes[0].outcome, 'stored')
+    const conflict = await store.archiveBatch({ owner, epoch: 'gen-1', records: [{ ...valid, body: BODY_B }] })
+    assert.equal(conflict.outcomes[0].outcome, 'conflict')
+    assert.equal(conflict.outcomes[0].errorCode, 'ERR_IMMUTABLE_CONFLICT')
+  }
+})
+
 test('M1 concurrent devices produce one immutable row with ordered sequences and exact quotas', async () => {
   for (const store of [createMemoryStore(), await createSqliteStore()]) {
     const input = record({ messageId: 'concurrent-1' })

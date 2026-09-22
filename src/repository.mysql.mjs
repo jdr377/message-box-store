@@ -1,14 +1,5 @@
 import {
-  assertOwnerDirection,
-  bodyHash,
-  canonicalRecordKey,
-  INITIAL_DELIVERY_STATES,
-  isIdentityKey,
   LIMITS,
-  validateEncryptedBody,
-  validateEpoch,
-  validateMessageBox,
-  validateMessageId,
   utf8ByteLength,
 } from './protocol.mjs'
 import {
@@ -25,10 +16,15 @@ import {
 } from './snapshots.mjs'
 
 const DELIVERY = new Set(['prepared', 'received', 'unknown', 'accepted', 'failed'])
-const utf8Bytes = utf8ByteLength
-const nextSeq = (cur) => (BigInt(cur) + 1n).toString()
-// Canonical BigInt-safe rotation + idempotency helpers (shared contract).
-import { canonicalParamsHash, rotateOwnerEpoch as sharedRotateEpoch, validateIdempotencyInput, validateStateMutationInput } from './repository.mjs'
+import {
+  canonicalParamsHash,
+  idempotencyConflict,
+  rotateOwnerEpoch,
+  sameImmutableRecord,
+  validateArchiveInput,
+  validateIdempotencyInput,
+  validateStateMutationInput,
+} from './repository-contract.mjs'
 import {
   assertNoInternalRetentionGap,
   assertNoRetentionGap,
@@ -48,65 +44,21 @@ import {
   verifySnapshotCursor,
   FEED_START,
 } from './feeds.mjs'
-const rotateEpoch = (epoch) => sharedRotateEpoch(epoch)
-
-function idempotencyConflictError() {
-  const error = new RangeError('idempotency key reuse with different input')
-  error.code = 'ERR_IDEMPOTENCY_CONFLICT'
-  throw error
-}
-
 function toMysqlTimestamp(iso) {
   return String(iso).slice(0, 19).replace('T', ' ')
 }
 
-function validateInput({ owner, epoch, record, ownerEpoch }) {
-  if (!isIdentityKey(owner)) return { valid: false, code: 'ERR_INVALID_RECORD' }
-  try {
-    validateEpoch(epoch)
-  } catch {
-    return { valid: false, code: 'ERR_INVALID_RECORD' }
+function normalizeMysqlImmutable(row) {
+  return {
+    messageId: row.message_id,
+    messageBox: row.message_box,
+    direction: row.direction,
+    sender: row.sender,
+    recipient: row.recipient,
+    bodyHash: row.body_hash,
+    body: row.body,
   }
-  if (ownerEpoch !== undefined && epoch !== ownerEpoch) return { valid: false, code: 'ERR_EPOCH_CHANGED' }
-  // Check the per-record byte cap before parsing the encrypted envelope. The
-  // canonical validator throws a RangeError for an oversized string; archive
-  // callers must preserve that as a typed size outcome rather than treating
-  // it as a malformed record.
-  if (typeof record?.body === 'string' && utf8Bytes(record.body) > LIMITS.MAX_BODY_BYTES) return { valid: false, code: 'ERR_REQUEST_TOO_LARGE' }
-  try {
-    validateMessageBox(record.messageBox)
-    validateMessageId(record.messageId)
-    if (record.direction !== 'inbound' && record.direction !== 'outbound') return { valid: false, code: 'ERR_INVALID_RECORD' }
-    assertOwnerDirection({ ownerIdentityKey: owner, direction: record.direction, sender: record.sender, recipient: record.recipient })
-    validateEncryptedBody(record.body)
-  } catch {
-    return { valid: false, code: 'ERR_INVALID_RECORD' }
-  }
-  const bytes = utf8Bytes(record.body)
-  if (bytes > LIMITS.MAX_BODY_BYTES) return { valid: false, code: 'ERR_REQUEST_TOO_LARGE' }
-  const bodyHashValue = bodyHash(record.body)
-  const recordKey = canonicalRecordKey({
-    ownerIdentityKey: owner,
-    direction: record.direction,
-    messageBox: record.messageBox,
-    sender: record.sender,
-    recipient: record.recipient,
-    messageId: record.messageId,
-  })
-  if (record.recordKey !== undefined && record.recordKey !== recordKey) return { valid: false, code: 'ERR_INVALID_RECORD' }
-  if (record.bodyHash !== undefined && record.bodyHash !== bodyHashValue) return { valid: false, code: 'ERR_INVALID_RECORD' }
-  if (record.deliveryState !== undefined && !INITIAL_DELIVERY_STATES.includes(record.deliveryState)) return { valid: false, code: 'ERR_INVALID_RECORD' }
-  return { valid: true, bodyHash: bodyHashValue, recordKey, bodyBytes: bytes }
 }
-
-const sameImmutable = (a, b) =>
-  a.message_id === b.messageId &&
-  a.message_box === b.messageBox &&
-  a.direction === b.direction &&
-  a.sender === b.sender &&
-  a.recipient === b.recipient &&
-  a.body_hash === b.bodyHash &&
-  a.body === b.body
 
 /** Ordered migration chain with checksum persistence and pre-record verification.
  * - Persists version + canonical checksum in schema_migrations;
@@ -350,7 +302,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
     const existing = rows[0][0] ?? null
     if (!existing) return { paramsHash, existing: null }
     if (existing.operation !== operation || existing.params_hash !== paramsHash) {
-      idempotencyConflictError()
+      idempotencyConflict()
     }
     return { paramsHash, existing: JSON.parse(existing.result_json) }
   }
@@ -420,7 +372,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       throw e
     }
     let batchBytes = 0
-    for (const r of records) batchBytes += typeof r?.body === 'string' ? utf8Bytes(r.body) : 0
+    for (const r of records) batchBytes += typeof r?.body === 'string' ? utf8ByteLength(r.body) : 0
     if (batchBytes > L.MAX_BATCH_BYTES) {
       const e = new RangeError('batch byte bound')
       e.code = 'ERR_REQUEST_TOO_LARGE'
@@ -441,14 +393,14 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       const planned = []
       for (let index = 0; index < records.length; index += 1) {
         const rec = records[index]
-        const check = validateInput({ owner, epoch, record: rec, ownerEpoch: st.epoch })
+        const check = validateArchiveInput({ owner, epoch, record: rec, ownerEpoch: st.epoch })
         if (!check.valid) {
           planned.push({ index, recordKey: rec?.recordKey ?? null, outcome: check.code === 'ERR_EPOCH_CHANGED' ? 'epochChanged' : 'invalid', errorCode: check.code })
           continue
         }
         const existing = (await trx.raw(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`, [owner, check.recordKey]))[0][0] ?? null
         if (existing) {
-          if (sameImmutable(existing, { ...rec, bodyHash: check.bodyHash })) {
+          if (sameImmutableRecord(normalizeMysqlImmutable(existing), { ...rec, bodyHash: check.bodyHash })) {
             planned.push({ index, recordKey: check.recordKey, outcome: 'alreadyPresent', bodyHash: check.bodyHash })
           } else {
             await trx.raw(`INSERT INTO history_audit_events (owner_identity_key, kind, record_key, detail) VALUES (?, 'immutable-conflict', ?, 'same key different content')`, [
@@ -511,7 +463,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
         } catch (error) {
           if (error?.code === 'ER_DUP_ENTRY') {
             const existing = (await trx.raw(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`, [owner, item.recordKey]))[0][0]
-            if (existing && sameImmutable(existing, { ...src, bodyHash: item.bodyHash })) {
+            if (existing && sameImmutableRecord(normalizeMysqlImmutable(existing), { ...src, bodyHash: item.bodyHash })) {
               item.outcome = 'alreadyPresent'
               delete item.validated
               seq -= 1n
@@ -700,7 +652,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       await trx.raw(`DELETE FROM history_tombstones WHERE owner_identity_key = ?`, [owner])
       await trx.raw(`DELETE FROM history_change_details WHERE owner_identity_key = ?`, [owner])
       await trx.raw(`DELETE FROM history_change_boundaries WHERE owner_identity_key = ?`, [owner])
-      const next = rotateEpoch(st.epoch)
+      const next = rotateOwnerEpoch(st.epoch)
       await trx.raw(`UPDATE history_owner_state SET record_count = 0, byte_count = 0, epoch = ? WHERE owner_identity_key = ?`, [next, owner])
       await trx.raw(`UPDATE history_snapshots SET status = 'invalidated' WHERE owner_identity_key = ? AND epoch = ? AND status = 'active'`, [owner, st.epoch])
       const result = { epoch: next }
