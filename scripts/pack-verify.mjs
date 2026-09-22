@@ -122,6 +122,7 @@ function main() {
     if (packedPackageJson.version !== packageJson.version) fail('packed package version changed')
     if (packedPackageJson.private !== true) fail('package-private boundary changed')
     if (existsSync(join(packedRoot, '.env'))) fail('secret .env was included in package artifact')
+    if (!existsSync(join(packedRoot, 'examples', 'private-history.ts'))) fail('private history example was not included in package artifact')
     renameSync(packedRoot, join(consumerRoot, 'node_modules', packageJson.name))
     // npm would install declared runtime dependencies beside the tarball. Link
     // the repository's locked installation to model that state without a
@@ -159,6 +160,10 @@ assert.equal(typeof root.syncPending, 'function')
 assert.equal(typeof client.syncPending, 'function')
 assert.equal(typeof root.sendOutboundOnce, 'function')
 assert.equal(typeof client.sendOutboundOnce, 'function')
+assert.equal(typeof root.syncHistory, 'function')
+assert.equal(typeof client.syncHistory, 'function')
+assert.equal(typeof root.MessageBoxArchiveWorker, 'function')
+assert.equal(typeof client.MessageBoxArchiveWorker, 'function')
 const wallet = {
   async encrypt() { return { ciphertext: [1, 2, 3] } },
   async decrypt() { return { plaintext: new TextEncoder().encode('packed') } },
@@ -192,6 +197,8 @@ assert.equal(typeof client.createFreeOnlyMessageBoxClient, 'function')
 assert.equal(typeof client.MessageBoxStoreClient, 'function')
 assert.equal(typeof client.syncPending, 'function')
 assert.equal(typeof client.sendOutboundOnce, 'function')
+assert.equal(typeof client.syncHistory, 'function')
+assert.equal(typeof client.MessageBoxArchiveWorker, 'function')
 `)
     runConsumerNode(browserScript, consumerRoot, ['--conditions=browser'])
 
@@ -212,6 +219,10 @@ assert.equal(typeof client.MessageBoxStoreClient, 'function')
 assert.equal(typeof root.syncPending, 'function')
 assert.equal(typeof client.syncPending, 'function')
 assert.equal(typeof client.sendOutboundOnce, 'function')
+assert.equal(typeof root.syncHistory, 'function')
+assert.equal(typeof client.syncHistory, 'function')
+assert.equal(typeof root.MessageBoxArchiveWorker, 'function')
+assert.equal(typeof client.MessageBoxArchiveWorker, 'function')
 `)
     runConsumerNode(cjsScript, consumerRoot)
 
@@ -226,7 +237,10 @@ import {
   MessageBoxStoreClient,
   syncPending,
   sendOutboundOnce,
+  syncHistory,
+  MessageBoxArchiveWorker,
 } from 'message-box-store'
+import type { LocalReplica } from 'message-box-store'
 import type { FreeOnlyMessageBoxClient, OutboundAttemptStore, PreparedEncryptedBody, WalletInterface } from 'message-box-store/client'
 import type { SnapshotCreateResponse } from 'message-box-store/protocol'
 import type { HistoryRepository } from 'message-box-store/storage'
@@ -238,11 +252,14 @@ declare const messageBoxClient: FreeOnlyMessageBoxClient
 declare const attemptStore: OutboundAttemptStore
 declare const wallet: Parameters<typeof prepareEncryptedBody>[0]['wallet']
 declare const walletClient: WalletInterface
+declare const localReplica: LocalReplica
 const history = new MessageBoxStoreClient({ walletClient, host: 'https://history.example.com' })
 const capabilities = history.capabilities()
 const resumedChanges = history.listChanges({ afterSequence: '0', epoch: 'gen-1' })
 const inboundOperation = syncPending
 const outboundOperation = sendOutboundOnce
+const synchronized = syncHistory({ owner: '${expectedOwner}', historyClient: history, localReplica })
+const worker = new MessageBoxArchiveWorker({ owner: '${expectedOwner}', historyClient: history, localStore: localReplica })
 const capability = createMessageBoxHttpSendCapability(messageBoxClient)
 const prepared: Promise<PreparedEncryptedBody> = prepareEncryptedBody({ wallet, plaintext: 'packed types', counterparty: '${expectedPeer}' })
 const sent = sendPreparedHttpOnce({
@@ -273,10 +290,13 @@ void capabilities
 void resumedChanges
 void inboundOperation
 void outboundOperation
+void synchronized
+void worker
 `)
     const tsc = join(root, 'node_modules', 'typescript', 'bin', 'tsc')
     if (!existsSync(tsc)) fail('TypeScript compiler is not installed for declaration verification')
-    run(process.execPath, [tsc, '--noEmit', '--strict', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--skipLibCheck', '--lib', 'ES2022,DOM', typesScript], { cwd: consumerRoot, env: process.env })
+    const packedExample = join(consumerRoot, 'node_modules', packageJson.name, 'examples', 'private-history.ts')
+    run(process.execPath, [tsc, '--noEmit', '--strict', '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext', '--skipLibCheck', '--lib', 'ES2022,DOM', typesScript, packedExample], { cwd: consumerRoot, env: process.env })
 
     console.log('pack-verify: real tarball consumer ESM/CJS/browser/declarations ok')
   } finally {

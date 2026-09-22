@@ -3,14 +3,14 @@
 An independently publishable encrypted-message history package, initially
 operated as a private MapApp service beside `@bsv/message-box-client` and
 Message Box Server. The repository contains the accepted product documents,
-the frozen M0 interoperability proof, and the M1 protocol/repository
-implementation under acceptance hardening.
+the frozen M0 interoperability proof, and the implemented M1-M3 private
+checkpoint.
 
-This repository is intentionally application-independent. M1 now implements
-canonical records, schemas, cursors, snapshots, memory/SQLite/MySQL repository
-adapters, migrations, quotas, deletion fences, and typed package surfaces.
-That does not make it a deployable service: authenticated HTTP routes, the
-archive/sync worker, operational recovery, and release evidence remain M2-M4.
+This repository is intentionally application-independent. M1-M3 now implement
+the protocol and repositories, authenticated service, archive/send operations,
+convergent local-replica contract, and polling worker.
+That does not make it a deployable service: capacity, backup/restore drills,
+security review, and release administration remain M4.
 The package can be transplanted into another repository and may be published
 after those gates are met; no publication or deployment is authorized here.
 
@@ -39,9 +39,10 @@ other device with the same wallet identity
   └─ authenticates to message-box-store, downloads ciphertext, decrypts locally
 ```
 
-This is the target flow, not a drop-in capability already exposed by the
-client. Its receive methods decrypt results, and its send method prepares
-ciphertext internally. M0 confirms a public composition: prepare the envelope
+This flow is executable through the package's M3 client operations; it is not
+a replacement for the Message Box client's own API. That client's receive
+methods decrypt results, and its send method prepares ciphertext internally.
+M0 confirms the public composition: prepare the envelope
 once with `wallet.encrypt`, persist that exact body and explicit ID, then pass
 them to HTTP `sendMessage` with `skipEncryption: true` and
 `checkPermissions: false`. V1 supports free transport only. An explicit
@@ -125,8 +126,9 @@ const result = await sendPreparedHttpOnce({
 `attemptStore.claimPrepared` must atomically insert only when absent. Plaintext
 stays with the caller; the attempt record and transport receive only the exact
 encrypted `prepared.body`. Existing prepared/unknown attempts are never resent.
-Durable repository behavior belongs to M1; service routes and the archive/sync
-worker remain M2 and M3.
+Durable repository behavior, service routes, and the archive/sync worker are
+implemented through M3. See [`examples/private-history.ts`](./examples/private-history.ts)
+for same-identity synchronization and local decryption.
 
 Pinned SDK 2.7.1 follows standard HTTP redirects and does not expose a public
 hook that can set `redirect: 'error'`. V1 accepts this upstream behavior. The
@@ -268,14 +270,26 @@ are pinned to the inspected commit for reproducible evidence.
 
 ## Status and next step
 
-M0 is accepted and frozen. Most M1 protocol, migration, repository, snapshot,
-cursor, and packaging work is implemented; `.2.4` is undergoing final
-concurrency, migration-upgrade, compaction, UTC, and exact-byte-boundary
-acceptance. This work does not make the package ready to publish. M2 adds the
-authenticated service; M3 adds client sync and archive ordering; M4 proves
-recovery and release packaging.
+M0 is accepted and frozen, and M1-M3 are implemented as a private evaluation
+checkpoint. The M3 two-device proof, evaluated on baseline `4f13a3d`, consumes
+the real packed root/client/server exports and demonstrates archive-before-ack,
+same-identity recovery and decryption, idempotent replay, outage-safe pending
+delivery, delete convergence (including expired-cursor snapshot recovery), and
+no resend after an ambiguous outbound result.
 
-## Reproducible M1+ commands (Node 22)
+Evidence recorded on 2026-09-22: the focused packed workflow passed 1/1;
+`bun run test:pack`, build, strict typecheck, lint, and diff validation passed;
+the default suite passed 317 and intentionally skipped 22 MySQL-gated tests
+(339 total, 0 failures); the separately enabled disposable-MySQL suite passed
+65/65 with no skips.
+
+This checkpoint is not ready to publish or deploy. Paid delivery, automatic
+resend/recovery, identity rotation/migration, a bundled local database, and
+availability guarantees remain unsupported. M4 remains open for capacity,
+backup/restore, security, release administration, and the final supported
+runtime/package matrix.
+
+## Reproducible M1-M3 commands (Node 22)
 
 ```sh
 bun install --frozen-lockfile
@@ -284,8 +298,9 @@ bun run typecheck    # tsc --noEmit (strict)
 bun run lint         # browser-safe graph + secret scan
 bun run test:m0      # frozen M0 proof fixtures (unchanged in role)
 bun run test:m1      # M1 protocol/repository/snapshot/pack evidence
-bun run test         # full suite (M0 + M1)
+bun run test         # full suite (M0-M3)
 bun run test:pack    # packed clean-consumer verification (real npm tarball)
+node --test tests/m3-two-device.test.mjs # packed two-device proof
 ```
 
 M0 `.mjs` fixtures remain frozen proof and pass unchanged. Typed M1+

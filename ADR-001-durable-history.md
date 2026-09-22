@@ -1,7 +1,7 @@
 # ADR-001: Durable encrypted history beside Message Box
 
-- **Status:** Accepted v1 architecture; M0 complete, M1 implemented and in
-  final acceptance hardening, M2-M4 not implemented
+- **Status:** Accepted v1 architecture; M0-M3 implemented as a private
+  evaluation checkpoint, M4 open
 - **Date:** 2026-09-20
 - **Decision owners:** message-box-store maintainers
 - **Scope:** One independently publishable package, initially used as MapApp's
@@ -34,18 +34,19 @@ would not recover already acknowledged messages from a hosted server.
 
 ## Implementation alignment checkpoint
 
-The M1 code now reflects the architecture through canonical opaque records,
+The M1-M3 code now reflects the architecture through canonical opaque records,
 versioned schemas and migrations, bounded quotas, memory/SQLite/MySQL
 repositories, stable snapshots, fixed-watermark changes, body-free deletion
-fences, and browser-safe typed exports. These mechanisms exist to make a
-best-effort encrypted history copy converge safely across devices.
+fences, authenticated routes, archive/send operations, a convergent replica
+contract, a polling worker, and browser-safe typed exports. These mechanisms
+exist to make a best-effort encrypted history copy converge safely across devices.
 
 They do not change the architectural boundary: Message Box remains transport;
 the wallet remains the only decryption authority; the store remains optional
 and operator-controlled; paid delivery, live fallback, resend recovery,
 identity migration, plaintext processing, and guaranteed availability remain
-outside v1. M1 completion is not service readiness. Authentication routes,
-workers, operations, restore drills, and publication remain M2-M4 gates.
+outside v1. M1-M3 completion is not deployment readiness. Capacity evidence,
+restore drills, security review, and publication remain M4 gates.
 
 Evidence for the transport boundary is in the current reference sources:
 
@@ -828,14 +829,10 @@ retention with operator purge, bounded no-ciphertext delete events, a single
 identity partition without rotation, visible routing metadata, no server-side
 thread ID, and no live fallback or send recovery.
 
-Remaining work is evidence, not product-policy choice: M1 finishes acceptance
-of the implemented wire/cursor/snapshot/deletion semantics, including
-concurrency and migration-upgrade proof; M2 proves signed-request integrity,
-bounded replay-window behavior and its post-eviction residual, invalid/removed
-session rejection, owner isolation, MySQL accounting/locking and resource
-bounds; M3 proves client deletion convergence, epoch restore, and that every
-worker AuthFetch operation uses and preserves the M0-proven free-only factory;
-M4 proves capacity, backup/restore behavior, browser/package
+M1-M3 implementation and acceptance evidence now cover the wire, repository,
+authenticated-service, and convergent-client contracts, including the
+M0-proven free-only factory boundary. Remaining work is evidence and release
+administration, not product-policy choice: M4 proves capacity, backup/restore behavior, browser/package
 exports, release documentation, and review. npm scope, license, maintainer
 account and publication are M4 release-administration gates, not authority to
 publish or deploy in this task.

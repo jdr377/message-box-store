@@ -20,6 +20,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["mod.ts", "src/**/*.ts"],
+  "include": ["mod.ts", "src/**/*.ts", "examples/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/**/*.mjs", "tests"]
 }

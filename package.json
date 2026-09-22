@@ -94,7 +94,8 @@
     "src/*.ts",
     "src",
     "dist",
-    "docs"
+    "docs",
+    "examples"
   ],
   "license": "UNLICENSED",
   "devDependencies": {

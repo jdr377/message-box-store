@@ -1,7 +1,7 @@
 # M0 v1 product and protocol decisions
 
-- **Status:** accepted design for v1; M0 complete, M1 in final acceptance,
-  M2-M4 not implemented
+- **Status:** accepted design for v1; M0-M3 implemented as a private evaluation
+  checkpoint, M4 open
 - **Decision owner:** message-box-store maintainers
 - **Date:** 2026-09-20
 - **Authority:** this decision record resolves the product choices that were
@@ -29,9 +29,9 @@ M4 publication. The current package remains private during development.
 The M1 package and repository baseline is Node.js 22 or newer, plus browsers
 supported by the tested browser-safe artifact. MySQL 8 and Knex 3.3.x are the
 production persistence target; SQLite and memory are parity/test adapters.
-Node.js 24 reference-service verification belongs to M2/M4 after the service
-exists and is not an M1 repository gate. The broader packed consumer/browser
-matrix remains an M4 release check.
+Node.js 24 reference-service verification and the final supported-runtime
+matrix remain M4 release checks. M3 includes a narrower packed Node/browser
+consumer proof for the current private checkpoint.
 
 The reference source baseline is `bdaebe696c18bf0c0b3c50ac9ef73a396d014d1b`
 in `ReferenceRepos/ts-stack`, inspected 2026-09-20. M0's executable client

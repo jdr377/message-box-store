@@ -1,7 +1,7 @@
 # Product Requirements Document: message-box-store
 
-- **Status:** Accepted v1 product contract; M0 complete, M1 implemented and in
-  final acceptance hardening, M2-M4 not implemented
+- **Status:** Accepted v1 product contract; M0-M3 implemented as a private
+  evaluation checkpoint, M4 open
 - **Date:** 2026-09-20
 - **Product:** `message-box-store`
 - **Audience:** implementers, package maintainers, service operators, and
@@ -32,9 +32,10 @@ consumer-application runtime dependency. V1 uses MySQL 8/Knex in production,
 SQLite for deterministic tests, and no PostgreSQL adapter. Its root client and
 protocol exports are browser-safe; server/storage code uses explicit subpaths.
 
-Normative v1 semantics are defined in the ADR and accepted decisions. M1 now
-implements the shared protocol and repository foundation, but those components
-are not a shipped service or completed user workflow. The existing client decrypts
+Normative v1 semantics are defined in the ADR and accepted decisions. M1-M3
+now implement the repository, authenticated service, and convergent client
+workflow, but this remains a private evaluation checkpoint rather than a
+shipped service. The existing client decrypts
 receive results and prepares ciphertext internally. M0 proves a public composition for the pinned
 2.5.1 client: `wallet.encrypt` prepares once, `sendMessage` receives the exact
 body with `skipEncryption: true`, and authenticated raw HTTP polling supplies
@@ -878,15 +879,9 @@ demonstrated in an automated or recorded integration test:
 The product choices are resolved in `docs/M0-DECISIONS.md`; these are evidence
 gates, not open product questions:
 
-- M1: finish acceptance of the implemented cursor/snapshot/deletion foundation;
-  this is proof and hardening, not permission to add service or client scope.
-- M2: prove owner isolation, signed-request mutation rejection, bounded
-  process-local replay-window behavior (including explicit post-eviction
-  fallback), invalid/removed-session rejection, MySQL quota/locking, finite
-  resource bounds, and log redaction.
-- M3: prove archive-before-ack, deletion convergence, restore epochs, and that
-  every implemented Message Box/store HTTP operation preserves the M0-proven
-  free-only construction guard.
+- M1-M3: implemented and covered by protocol/repository, authenticated-service,
+  client-operation, and packed two-device evidence. This status does not grant
+  publication or deployment authority.
 - M4: capacity and backup/restore evidence, packed browser/server exports,
   license/registry/maintainer administration, and security review.
 - Revalidate the adapter matrix whenever the pinned client or SDK versions
