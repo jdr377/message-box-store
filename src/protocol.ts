@@ -28,11 +28,14 @@ export type { DeliveryState, Direction, Feed } from './canonical.js'
 
 export const ROUTES = {
   archiveBatch: 'POST /v1/history/records',
+  browse: 'GET /v1/history/records',
+  snapshotCreate: 'POST /v1/history/snapshot',
   snapshot: 'GET /v1/history/snapshot',
   changes: 'GET /v1/history/changes',
   patchState: 'PATCH /v1/history/records/{recordKey}/state',
   deleteRecord: 'DELETE /v1/history/records/{recordKey}',
   deleteAll: 'DELETE /v1/history/records',
+  usage: 'GET /v1/history/usage',
   capabilities: 'GET /v1/history/capabilities',
   liveness: 'GET /healthz',
   readiness: 'GET /ready',
@@ -140,6 +143,46 @@ export interface SnapshotCreateResponse {
   watermark: string
   memberCount: number
   status: 'active' | 'invalidated'
+  createdAt?: string
+  expiresAt?: string
+}
+
+export interface BrowseAfter {
+  createdAt: string
+  recordKey: string
+}
+
+export interface BrowseResponse {
+  records: HistoryRecord[]
+  nextAfter: BrowseAfter | null
+}
+
+export interface StatePatchResponse {
+  recordKey: string
+  revision: string
+  sequence: string
+  deduped?: boolean
+  replayed?: boolean
+  ok?: boolean
+}
+
+export interface DeleteRecordResponse {
+  deleted: boolean
+  epoch: string
+  sequence?: string
+  replayed?: boolean
+}
+
+export interface DeleteAllResponse {
+  epoch: string
+  replayed?: boolean
+}
+
+export interface Usage {
+  recordCount: number
+  byteCount: number
+  nextSequence: string
+  epoch: string
 }
 
 export interface SnapshotMeta {

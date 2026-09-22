@@ -8,7 +8,7 @@ export {
   createMessageBoxHttpSendCapability,
   OUTBOUND_SEND_STATES,
   sendPreparedHttpOnce,
-} from './m0-outbound-http-send.mjs'
+} from './outbound-runtime.js'
 
 export {
   bodyHash,
@@ -19,7 +19,7 @@ export {
   MESSAGEBOX_PROTOCOL,
   plaintextText,
   prepareEncryptedBody,
-} from './m0-envelope.mjs'
+} from './envelope-runtime.js'
 
 export {
   CURSOR_DOMAIN,

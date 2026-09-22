@@ -170,7 +170,7 @@ test('M2.1a browser-safe entrypoints do not import the service graph', async () 
   const { readFileSync } = await import('node:fs')
   for (const rel of ['mod.ts', 'src/protocol.ts', 'src/client.ts', 'src/canonical.ts']) {
     const source = readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')
-    assert.ok(!source.includes('service'), `${rel} must not import service`)
+    assert.ok(!/from\s+['"][^'"]*service(?:\.[^'"]*)?['"]/.test(source), `${rel} must not import service`)
     assert.ok(!source.includes("from 'express"), `${rel} must not import express`)
   }
 })

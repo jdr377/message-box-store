@@ -1,7 +1,17 @@
 import { readFileSync, existsSync } from 'node:fs'
 
-/** Browser-safe graph, package-export, and secret checks for M1 public code. */
-const BROWSER_SOURCES = ['mod.ts', 'src/canonical.js', 'src/canonical-runtime.js', 'src/canonical.ts', 'src/protocol.ts', 'src/client.ts']
+/** Browser-safe graph, package-export, and secret checks for public code. */
+const BROWSER_SOURCES = [
+  'mod.ts',
+  'src/canonical.js',
+  'src/canonical-runtime.js',
+  'src/canonical.ts',
+  'src/protocol.ts',
+  'src/client.ts',
+  'src/envelope-runtime.js',
+  'src/outbound-runtime.js',
+  'src/free-only-transport.mjs',
+]
 const BROWSER_DIST = ['dist/mod.js', 'dist/protocol.js', 'dist/client.js', 'dist/canonical.js']
 const BANNED = [
   "from 'node:",
@@ -50,7 +60,7 @@ for (const [subpath, target] of Object.entries(pkg.exports ?? {})) {
 }
 
 const SECRET_PATTERNS = [/-----BEGIN .*PRIVATE KEY-----/, /xprv[0-9A-Za-z]{50,}/]
-const SCAN_FILES = ['mod.ts', 'src/canonical.js', 'src/canonical-runtime.js', 'src/canonical.ts', 'src/protocol.ts', 'src/client.ts', 'src/server.ts', 'src/service.ts', 'src/storage.ts', 'tsdown.config.ts', 'tsconfig.json', 'package.json']
+const SCAN_FILES = [...BROWSER_SOURCES, 'src/server.ts', 'src/service.ts', 'src/storage.ts', 'tsdown.config.ts', 'tsconfig.json', 'package.json']
 for (const rel of SCAN_FILES) {
   try {
     const source = readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8')

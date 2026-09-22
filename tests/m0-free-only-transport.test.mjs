@@ -501,14 +501,25 @@ test('package legacy proof entrypoint exposes guarded factories, not upstream co
   )
 })
 
-test('mbs-8g5.2.2.1 typed package root is browser-safe and exposes canonical (M0 via legacy path)', async () => {
-  // New typed root (package self-reference) is the browser-safe M1+ boundary.
+test('typed package root exposes the browser-safe guarded transport runtime', async () => {
   const typed = await import('message-box-store')
-  for (const name of ['bodyHash', 'canonicalRecordKey', 'PROTOCOL_VERSION', 'RECORD_DOMAIN', 'LIMITS', 'ERROR_CODES', 'ROUTES']) {
+  for (const name of [
+    'bodyHash',
+    'canonicalRecordKey',
+    'createFreeOnlyMessageBoxClient',
+    'createMessageBoxHttpSendCapability',
+    'decryptArchivedBody',
+    'prepareEncryptedBody',
+    'sendPreparedHttpOnce',
+    'PROTOCOL_VERSION',
+    'RECORD_DOMAIN',
+    'LIMITS',
+    'ERROR_CODES',
+    'ROUTES',
+  ]) {
     assert.equal(Object.hasOwn(typed, name), true, `missing typed root export ${name}`)
   }
-  // Typed root must not expose Node-only M0 internals or upstream constructors.
-  for (const name of ['AuthFetch', 'MessageBoxClient', 'createAction', 'sendLiveMessage', 'createFreeOnlyMessageBoxClient', 'decryptArchivedBody']) {
+  for (const name of ['AuthFetch', 'MessageBoxClient', 'createAction', 'sendLiveMessage', 'createPaymentDisabledWallet', 'createFreeOnlyAuthFetch']) {
     assert.equal(Object.hasOwn(typed, name), false, `typed root must not expose ${name}`)
   }
 })

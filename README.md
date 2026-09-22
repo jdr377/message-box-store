@@ -88,8 +88,45 @@ value is compatibility-only and must match that identity before reservation or
 network activity. The package root does not export
 a generic AuthFetch or guarded-wallet construction surface because either
 could be composed into an alternate direct-send path.
-M0 itself remains a frozen proof boundary. Durable repository behavior belongs
-to M1; service routes and the archive/sync worker remain M2 and M3.
+These helpers are available from both `message-box-store` and
+`message-box-store/client`; the old M0 source paths are compatibility
+re-exports of the same implementation.
+
+```ts
+import {
+  createFreeOnlyMessageBoxClient,
+  createMessageBoxHttpSendCapability,
+  prepareEncryptedBody,
+  sendPreparedHttpOnce,
+} from 'message-box-store'
+
+const messageBox = createFreeOnlyMessageBoxClient({
+  walletClient,
+  host: 'https://messagebox.example',
+})
+const ownerIdentityKey = await messageBox.getIdentityKey()
+const prepared = await prepareEncryptedBody({
+  wallet: walletClient,
+  plaintext: { text: 'hello' },
+  counterparty: recipientIdentityKey,
+})
+const result = await sendPreparedHttpOnce({
+  httpSend: createMessageBoxHttpSendCapability(messageBox),
+  attemptStore,
+  ownerIdentityKey,
+  recipient: recipientIdentityKey,
+  messageBox: 'general_inbox',
+  messageId: crypto.randomUUID(),
+  body: prepared.body,
+  host: messageBox.host,
+})
+```
+
+`attemptStore.claimPrepared` must atomically insert only when absent. Plaintext
+stays with the caller; the attempt record and transport receive only the exact
+encrypted `prepared.body`. Existing prepared/unknown attempts are never resent.
+Durable repository behavior belongs to M1; service routes and the archive/sync
+worker remain M2 and M3.
 
 Pinned SDK 2.7.1 follows standard HTTP redirects and does not expose a public
 hook that can set `redirect: 'error'`. V1 accepts this upstream behavior. The
@@ -103,6 +140,34 @@ The service stores ciphertext and routing metadata. It never receives wallet
 private keys or plaintext as part of the supported integration. A client may
 decrypt only after retrieval, using the same wallet identity and protocol that
 created the message.
+
+The same public wallet can call the private history service through the
+guarded authenticated client. The origin is explicit, capability compatibility
+is checked, and mutation methods make no silent retries:
+
+```ts
+import { MessageBoxStoreClient } from 'message-box-store'
+
+const history = new MessageBoxStoreClient({
+  walletClient,
+  host: 'https://history.example.com',
+})
+const { epoch } = await history.capabilities()
+const archived = await history.archiveBatch({
+  epoch,
+  records: [{
+    messageId: crypto.randomUUID(),
+    messageBox: 'general_inbox',
+    direction: 'outbound',
+    sender: ownerIdentityKey,
+    recipient: recipientIdentityKey,
+    body: prepared.body,
+    bodyHash: prepared.bodyHash,
+    deliveryState: 'prepared',
+  }],
+})
+if (!archived.committed) throw new Error('archive was not confirmed')
+```
 
 ## Documents
 

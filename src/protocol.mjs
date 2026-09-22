@@ -62,11 +62,14 @@ export {
 
 export const ROUTES = Object.freeze({
   archiveBatch: 'POST /v1/history/records',
+  browse: 'GET /v1/history/records',
+  snapshotCreate: 'POST /v1/history/snapshot',
   snapshot: 'GET /v1/history/snapshot',
   changes: 'GET /v1/history/changes',
   patchState: 'PATCH /v1/history/records/{recordKey}/state',
   deleteRecord: 'DELETE /v1/history/records/{recordKey}',
   deleteAll: 'DELETE /v1/history/records',
+  usage: 'GET /v1/history/usage',
   capabilities: 'GET /v1/history/capabilities',
   liveness: 'GET /healthz',
   readiness: 'GET /ready',
