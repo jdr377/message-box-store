@@ -8,6 +8,68 @@ Retain only what this document lists. Active records use the enforced
 `permanent` retention policy; expired body-free change rows may be purged by
 the bounded cleanup pass. There is no finite active-record retention mode.
 
+## Offline restore recovery drill
+
+The database provider owns encrypted, access-controlled, transaction-consistent
+backups. Keep the finite backup-retention date and deletion receipts outside the
+backed-up database. The service is best-effort history storage: a restored image
+cannot recover writes committed after that image, and permanent loss of the
+wallet identity key makes ciphertext undecryptable.
+
+For a rollback restore, keep the service offline and:
+
+1. Restore a consistent MySQL image into a disposable or isolated target and
+   run the ordinary migration/schema verification.
+2. Prepare a receipt bundle containing the owner, the epoch found in the image,
+   a new externally generated epoch, the backup and receipt-coverage instants,
+   the finite backup-retention deadline, and every post-backup record deletion.
+   Set `deletionReceiptsComplete` to `true` only after independently proving the
+   receipt interval is complete. If that proof is unavailable, do not serve the
+   restored database; discard it or keep it offline. A post-backup bulk deletion
+   must be expanded into receipts for every record in the restored owner image;
+   otherwise the completeness assertion is false and recovery must stop.
+
+   ```json
+   {
+     "version": 1,
+     "recoveryId": "restore_2026_09_22_a",
+     "owner": "02...compressed identity key...",
+     "restoredEpoch": "gen-4",
+     "recoveryEpoch": "restore_2026_09_22_a",
+     "deletionReceiptsComplete": true,
+     "backupCreatedAt": "2026-09-22T00:00:00.000Z",
+     "receiptsCompleteThrough": "2026-09-22T02:00:00.000Z",
+     "backupRetentionUntil": "2026-10-22T00:00:00.000Z",
+     "deletions": [
+       { "recordKey": "...64 lowercase hex...", "deletedAt": "2026-09-22T01:00:00.000Z" }
+     ]
+   }
+   ```
+3. With the service still stopped, run:
+
+   ```text
+   MESSAGE_BOX_STORE_RECOVERY_ENABLED=1 bun run recover:restore -- receipts.json --confirm-service-offline
+   ```
+
+4. Confirm the command reports the new epoch and `postBackupWritesRecovered` as
+   `false`. Restart the service only after this succeeds. Old cursors and writes
+   then fail their epoch checks; clients must perform a complete snapshot.
+5. Destroy the disposable drill database. Ensure encrypted backup media expires
+   no later than the bundle's `backupRetentionUntil`; active deletion cannot
+   erase bytes already retained in an older operator backup.
+
+The command does not restore a database, discover missing receipts, generate an
+epoch, contact wallets, or recover post-backup writes. It transactionally
+reapplies the supplied record deletions, reinstalls their body-free tombstones,
+invalidates restored snapshots and idempotency results, recalculates live quota,
+and switches to the supplied epoch. Re-running the same recovery ID is safe.
+
+The executable disposable drill is `bun run test:m4:mysql`. It proves that a
+rollback would resurrect deleted ciphertext before fencing; the recovery step
+removes it, preserves backup-resident inbound/outbound ciphertext, rejects a
+stale writer, reports the post-backup loss boundary, and forces a second-device
+replica through complete snapshot reconciliation.
+
 ## Prerequisites
 
 - Bun 1.x (Node.js 22+ also works for the gate scripts)

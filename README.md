@@ -301,7 +301,15 @@ bun run test:m1      # M1 protocol/repository/snapshot/pack evidence
 bun run test         # full suite (M0-M3)
 bun run test:pack    # packed clean-consumer verification (real npm tarball)
 node --test tests/m3-two-device.test.mjs # packed two-device proof
+bun run test:m4:mysql                    # disposable MySQL rollback/recovery drill
 ```
+
+Operator rollback recovery is deliberately offline and receipt-driven. See
+[`docs/RUNBOOK.md`](docs/RUNBOOK.md#offline-restore-recovery-drill). It requires
+an externally supplied fresh epoch and complete post-backup deletion receipts;
+without that evidence the restored service stays offline. It does not claim to
+recover writes that occurred after the backup or ciphertext whose wallet
+identity key was lost.
 
 M0 `.mjs` fixtures remain frozen proof and pass unchanged. Typed M1+
 entrypoints (`mod.ts`, `src/protocol.ts`, `src/client.ts`, `src/server.ts`,

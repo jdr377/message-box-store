@@ -63,7 +63,9 @@
     "test:m0": "node --test tests/m0-*.test.mjs",
     "test:m1": "node scripts/run-tests.mjs m1 tests/m1-*.test.mjs",
     "test:m1:mysql": "node --test --test-concurrency=1 tests/m1-feeds.test.mjs tests/m1-idempotency.test.mjs tests/m1-protocol-conformance.test.mjs tests/m1-repository.mysql.test.mjs tests/m1-snapshot-binding.test.mjs tests/m1-snapshots.test.mjs",
+    "test:m4:mysql": "node --test --test-concurrency=1 tests/m4-recovery.test.mjs",
     "test:pack": "node scripts/pack-verify.mjs",
+    "recover:restore": "node scripts/restore-recovery.mjs",
     "start": "node scripts/ops.mjs start",
     "migrate": "node scripts/ops.mjs migrate",
     "config:check": "node scripts/ops.mjs check-config"
@@ -93,6 +95,7 @@
     "mod.ts",
     "src/*.ts",
     "src",
+    "scripts/restore-recovery.mjs",
     "dist",
     "docs",
     "examples"

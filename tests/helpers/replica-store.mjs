@@ -91,7 +91,7 @@ export function createTransactionalReplicaFixture() {
       for (const key of coverage.members) referenced.add(key)
     }
     for (const [key, record] of next.records) {
-      if (record.owner === owner && !referenced.has(record.recordKey)) next.records.delete(key)
+      if (record.owner === owner && !referenced.has(record.record.recordKey)) next.records.delete(key)
     }
   }
 
