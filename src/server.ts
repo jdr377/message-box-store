@@ -2,9 +2,11 @@
  * Typed M1+ server surface (mbs-8g5.2.2.1) plus M2.1a composition boundary
  * (mbs-8g5.3.1.1), M2.1b auth binding (mbs-8g5.3.1.2), M2.1c mutations
  * (mbs-8g5.3.1.3), M2.1d retrieval routes (mbs-8g5.3.1.4), M2.1e
- * capabilities/liveness/readiness (mbs-8g5.3.1.5) and M2.2a.1 exact
- * origin/CORS plus early body/batch ingress bounds (mbs-8g5.3.2.1.1).
- * Server-only subpath: Express route adapter types and the standalone
+ * capabilities/liveness/readiness (mbs-8g5.3.1.5), M2.2a.1 exact
+ * origin/CORS plus early body/batch ingress bounds (mbs-8g5.3.2.1.1),
+ * M2.2a.2 finite active-request admission plus pool bounds
+ * (mbs-8g5.3.2.1.2), and M2.2a.3 bounded process-local pre-auth IP plus
+ * authenticated-identity rate limits (mbs-8g5.3.2.1.3). Server-only subpath: Express route adapter types and the standalone
  * service live here so browser bundles never include them.
  *
  * Runtime server dependencies (express, auth middleware, sdk, and other
@@ -36,8 +38,11 @@ export type SnapshotRoute = (identity: AuthenticatedIdentity, query: Record<stri
 export type ChangesRoute = (identity: AuthenticatedIdentity, query: Record<string, string | undefined>, options: HistoryRoutesOptions) => Promise<RouteResult<HistoryPage>>
 
 // M2.1a standalone composition boundary plus M2.1b auth binding, M2.1c
-// mutations, M2.1d retrieval routes, M2.1e capabilities and M2.2a.1
-// ingress (exact origins/CORS, early body/batch bounds).
+// mutations, M2.1d retrieval routes, M2.1e capabilities, M2.2a.1
+// ingress (exact origins/CORS, early body/batch bounds), M2.2a.2
+// admission (finite active-request bound, finite pool min/max), and
+// M2.2a.3 rate (bounded fixed-window pre-auth IP + identity limiters and
+// the one trusted-proxy parse).
 // Re-exported here so the single `message-box-store/server` subpath owns
 // Express/MySQL/auth construction while browser-safe entrypoints stay free
 // of server code. The Capabilities wire type itself lives on the browser-safe
@@ -71,6 +76,7 @@ export {
   assertEarlyBatchBounds,
   assertNoOwnerOverride,
   buildCapabilities,
+  createFixedWindowRateLimiter,
   createReplayGuard,
   createService,
   createServiceApp,
@@ -78,6 +84,10 @@ export {
   mapRepositoryError,
   parseAllowedOrigins,
   parseRetentionDays,
+  parseTrustedProxy,
+  RATE_LIMIT_MAX_KEYS,
+  RATE_LIMIT_MIN_PER_WINDOW,
+  RATE_LIMIT_WINDOW_MS,
   resolveRequestOwner,
   validateArchiveBatchBody,
   validateBrowseQuery,
@@ -94,4 +104,4 @@ export {
   validateSnapshotPageQuery,
   validateUsageQuery,
 } from './service.js'
-export type { ReadinessStatus, ReplayGuard, ReplayGuardOptions, Service, ServiceAppState, ServiceAuthOptions, ServiceConfig, ServiceKnex, ServiceMysqlConfig, ServiceOptions } from './service.js'
+export type { FixedWindowRateLimiter, FixedWindowRateLimiterOptions, RateLimitDecision, ReadinessStatus, ReplayGuard, ReplayGuardOptions, Service, ServiceAppState, ServiceAuthOptions, ServiceConfig, ServiceKnex, ServiceMysqlConfig, ServiceOptions } from './service.js'

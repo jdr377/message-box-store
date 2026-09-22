@@ -20,9 +20,20 @@
  * publishes effective protocol/limits/retention/epoch/feature configuration
  * for the authenticated owner only, and the M2.2a.1 ingress layer (exact
  * configured origin/CORS policy plus early HTTP body, batch-item and
- * batch-byte bounds before authentication or repository work). Reuses M1
+ * batch-byte bounds before authentication or repository work), and the
+ * M2.2a.2 admission layer (a finite configured active-request bound enforced
+ * before readiness probes, authentication or repository work with guaranteed
+ * slot release — only public liveness bypasses it — plus finite validated
+ * Knex/MySQL pool min/max wiring), and the M2.2a.3 rate layer (a process-local
+ * fixed-window pre-auth limit keyed by normalized remote IP — forwarding
+ * headers ignored unless the one explicit trusted-proxy setting matches the
+ * socket — enforced between admission and readiness/authentication, plus a
+ * process-local fixed-window post-auth limit keyed by the verified owner
+ * identity enforced after the replay window; both bounded with deterministic
+ * window expiry and overflow eviction, reusing the M1 per-minute defaults and
+ * the typed ERR_RATE_LIMITED envelope). Reuses M1
  * protocol, limits, cursors, filters, migrations and repository adapters;
- * adds no rate or concurrency controls, no cleanup or logging (.3.2.2), no
+ * adds no cleanup or logging (.3.2.2), no
  * metrics, discovery, pricing, deployment, client synchronization, policy
  * framework, workers, tombstone endpoint, live-send/ack, alternate
  * databases, TLS termination, or new storage behavior.
@@ -37,7 +48,7 @@ import { LIMITS, PROTOCOL_VERSION, isIdentityKey, isRecordKey, isUint64DecimalSt
 import type { Capabilities } from './protocol.js'
 import type { HistoryRepository } from './storage.js'
 
-export const SERVICE_VERSION = '0.0.0-m2.2a.1'
+export const SERVICE_VERSION = '0.0.0-m2.2a.3'
 export const SERVICE_CONFIG_CODE = 'ERR_STORAGE_CONFIGURATION'
 export const SERVICE_MYSQL_CODE = 'ERR_MYSQL_CONFIG'
 export const SERVICE_MIGRATION_CODE = 'ERR_MIGRATION_STRUCTURE'
@@ -137,6 +148,257 @@ export const REPLAY_CACHE_LIMIT = 5000
 /** Exact handshake path. The replay window never applies to it. */
 export const AUTH_HANDSHAKE_PATH = '/.well-known/auth'
 
+/**
+ * M2.2a.3 rate windows (mbs-8g5.3.2.1.3): one aligned fixed window per
+ * minute, matching the accepted M1 profile (pre-auth 300/min/IP, post-auth
+ * 1,000/min/identity). Process-local by design — no shared or distributed
+ * rate state, no proxy discovery, no policy engine.
+ */
+export const RATE_LIMIT_WINDOW_MS = 60_000
+
+/**
+ * Per-limiter key bound. Each limiter's Map never exceeds this many bucket
+ * keys: expired-window entries are swept first on overflow, then the least
+ * recently admitted key is evicted, so state stays finite under key churn.
+ * The residual risk (an evicted active key restarts its allowance) is the
+ * documented cost of bounded process-local state, mirroring the replay
+ * window's FIFO-bound policy.
+ */
+export const RATE_LIMIT_MAX_KEYS = 10_000
+
+/**
+ * Minimal safe allowance accepted by configuration: at least two requests
+ * per window, so one owner-authorized deletion plus its exact idempotent
+ * retry always fit within a fresh window at any accepted setting. Defaults
+ * stay at the much larger M1 profile values (300/1,000).
+ */
+export const RATE_LIMIT_MIN_PER_WINDOW = 2
+
+export interface FixedWindowRateLimiterOptions {
+  /** Admitted requests per window per key. Safe integer >= 1. */
+  limit: number
+  /** Window length. Defaults to RATE_LIMIT_WINDOW_MS. */
+  windowMs?: number
+  /** Bucket-key bound. Defaults to RATE_LIMIT_MAX_KEYS. */
+  maxKeys?: number
+  /** Clock injection for deterministic tests. Defaults to Date.now. */
+  now?: () => number
+}
+
+export interface RateLimitDecision {
+  allowed: boolean
+  /** Whole seconds until the current window ends; present only on denial. */
+  retryAfterSeconds?: number
+}
+
+export interface FixedWindowRateLimiter {
+  /** Consume one unit for key. Denials do not mutate counters. */
+  consume(key: string): RateLimitDecision
+  /** Current bucket occupancy (tests/observability; bounded by maxKeys). */
+  size(): number
+  /** Current bucket keys only: normalized IPs or verified identity keys. */
+  keys(): string[]
+}
+
+/**
+ * One process-local aligned fixed-window counter map. State per key is only
+ * a window id and an admitted count — never auth headers, signatures,
+ * nonces, request ids, bodies or ciphertext. Windows roll deterministically
+ * on the injected clock; overflow sweeps expired windows first, then the
+ * least recently admitted key, so the Map stays at or below maxKeys.
+ */
+export function createFixedWindowRateLimiter(options: FixedWindowRateLimiterOptions): FixedWindowRateLimiter {
+  const { limit } = options
+  if (!Number.isSafeInteger(limit) || limit < 1) {
+    throw new TypeError('rate limiter limit must be a positive safe integer')
+  }
+  const windowMs = options.windowMs ?? RATE_LIMIT_WINDOW_MS
+  if (!Number.isSafeInteger(windowMs) || windowMs < 1) {
+    throw new TypeError('rate limiter windowMs must be a positive safe integer')
+  }
+  const maxKeys = options.maxKeys ?? RATE_LIMIT_MAX_KEYS
+  if (!Number.isSafeInteger(maxKeys) || maxKeys < 1) {
+    throw new TypeError('rate limiter maxKeys must be a positive safe integer')
+  }
+  const now = options.now ?? Date.now
+  const state = new Map<string, { window: number; count: number }>()
+
+  const retryAfter = (window: number): number => {
+    const remainingMs = (window + 1) * windowMs - now()
+    return Math.max(1, Math.ceil(remainingMs / 1000))
+  }
+
+  const evict = (currentWindow: number): void => {
+    for (const [key, entry] of state) {
+      if (entry.window !== currentWindow) state.delete(key)
+    }
+    while (state.size >= maxKeys) {
+      const oldest = state.keys().next()
+      if (oldest.done) break
+      state.delete(oldest.value)
+    }
+  }
+
+  return {
+    consume(key: string): RateLimitDecision {
+      const timestamp = now()
+      const window = Math.floor(timestamp / windowMs)
+      const entry = state.get(key)
+      if (entry !== undefined) {
+        if (entry.window === window) {
+          if (entry.count >= limit) return { allowed: false, retryAfterSeconds: retryAfter(window) }
+          entry.count += 1
+          state.delete(key)
+          state.set(key, entry)
+          return { allowed: true }
+        }
+        entry.window = window
+        entry.count = 1
+        state.delete(key)
+        state.set(key, entry)
+        return { allowed: true }
+      }
+      if (state.size >= maxKeys) evict(window)
+      state.set(key, { window, count: 1 })
+      return { allowed: true }
+    },
+    size: () => state.size,
+    keys: () => [...state.keys()],
+  }
+}
+
+/**
+ * Canonicalize a dotted-quad: four decimal octets 0-255 with leading zeros
+ * stripped so equivalent IPv4 spellings share one bucket/trust key. Returns
+ * null when the value is not an exact IPv4 literal.
+ */
+function canonicalizeIpv4(value: string): string | null {
+  const octets = value.split('.')
+  if (octets.length !== 4) return null
+  const normalized: number[] = []
+  for (const octet of octets) {
+    if (!/^\d{1,3}$/.test(octet)) return null
+    const parsed = Number(octet)
+    if (parsed > 255) return null
+    normalized.push(parsed)
+  }
+  return normalized.join('.')
+}
+
+/**
+ * Canonicalize a lowercase hex-and-colon IPv6 literal (optional trailing
+ * embedded IPv4) to eight lowercase groups with no leading zeros, unmapping
+ * IPv4-mapped IPv6 (`::ffff:127.0.0.1` → `127.0.0.1`). Rejects every
+ * malformed form the previous ad-hoc grammar admitted: more than one `::`,
+ * `:::`, empty groups outside compression, groups longer than four hex
+ * digits, and fewer/more than eight groups once compression is expanded.
+ * Returns null when the value is not an exact IPv6 literal.
+ */
+function canonicalizeIpv6(value: string): string | null {
+  let s = value
+  if (s.includes('.')) {
+    const lastColon = s.lastIndexOf(':')
+    if (lastColon === -1) return null
+    const dotted = canonicalizeIpv4(s.slice(lastColon + 1))
+    if (dotted === null) return null
+    const [a, b, c, d] = dotted.split('.').map(Number)
+    s = `${s.slice(0, lastColon + 1)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`
+  }
+  if (!/^[0-9a-f:]+$/.test(s)) return null
+  const compressions = s.match(/::/g)
+  if (compressions !== null && compressions.length > 1) return null
+  const hasCompression = s.includes('::')
+  let head: string[]
+  let tail: string[]
+  if (hasCompression) {
+    const index = s.indexOf('::')
+    const left = s.slice(0, index)
+    const right = s.slice(index + 2)
+    head = left === '' ? [] : left.split(':')
+    tail = right === '' ? [] : right.split(':')
+  } else {
+    head = s.split(':')
+    tail = []
+  }
+  const present = [...head, ...tail]
+  for (const group of present) {
+    if (!/^[0-9a-f]{1,4}$/.test(group)) return null
+  }
+  if (hasCompression) {
+    if (present.length > 7) return null
+  } else if (present.length !== 8) {
+    return null
+  }
+  const zeros = 8 - present.length
+  const expanded = [
+    ...head.map((group) => parseInt(group, 16).toString(16)),
+    ...Array.from({ length: zeros }, () => '0'),
+    ...tail.map((group) => parseInt(group, 16).toString(16)),
+  ]
+  if (
+    expanded[0] === '0' && expanded[1] === '0' && expanded[2] === '0' &&
+    expanded[3] === '0' && expanded[4] === '0' && expanded[5] === 'ffff'
+  ) {
+    const high = parseInt(expanded[6]!, 16)
+    const low = parseInt(expanded[7]!, 16)
+    return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`
+  }
+  return expanded.join(':')
+}
+
+/**
+ * Normalize an IP literal to a stable bucket/trust key: trim, lowercase, drop
+ * an IPv6 zone suffix, then validate and canonicalize through the shared
+ * IPv4/IPv6 path so equivalent spellings (compressed/expanded IPv6,
+ * IPv4-mapped IPv6, leading-zero IPv4) never split across two keys. Returns
+ * null for anything that is not an exact IP literal; callers then fall back
+ * to the socket address or fail typed configuration.
+ */
+function normalizeIpLiteral(value: string): string | null {
+  const cleaned = value.trim().toLowerCase().split('%')[0]
+  if (cleaned.length === 0 || cleaned.length > 45) return null
+  if (cleaned.includes(':')) return canonicalizeIpv6(cleaned)
+  return canonicalizeIpv4(cleaned)
+}
+
+/**
+ * Parse the one explicit trusted-proxy setting (M2.2a.3): an exact IP
+ * address the operator asserts terminates TLS/proxies for this process.
+ * Empty/absent is the default and means every forwarding header is ignored.
+ * Generic typed description; the supplied value is never echoed.
+ */
+export function parseTrustedProxy(value: unknown): string {
+  if (value === undefined || value === null || value === '') return ''
+  if (typeof value !== 'string') throw configError('trustedProxy must be an exact IP address')
+  const normalized = normalizeIpLiteral(value)
+  if (normalized === null) throw configError('trustedProxy must be an exact IP address')
+  return normalized
+}
+
+/**
+ * Resolve the pre-auth rate-limit bucket key for one request. The socket
+ * address is always normalized first. Spoofable forwarding headers
+ * (`X-Forwarded-For`, `X-Real-IP`, `Forwarded`, ...) are ignored entirely
+ * unless the normalized socket address equals the single configured
+ * trusted-proxy address; only then is the rightmost `X-Forwarded-For` entry
+ * (the hop appended by that one proxy) consulted, falling back to the
+ * socket address when it is missing or not an IP literal.
+ */
+function resolveRateLimitIpKey(
+  req: { headers: Record<string, unknown>; socket?: { remoteAddress?: unknown } | null },
+  trustedProxy: string,
+): string {
+  const rawAddress = req.socket?.remoteAddress
+  const socket = (typeof rawAddress === 'string' ? normalizeIpLiteral(rawAddress) : null) ?? 'unknown'
+  if (trustedProxy.length === 0 || socket !== trustedProxy) return socket
+  const forwarded = req.headers['x-forwarded-for']
+  if (typeof forwarded !== 'string' || forwarded.length === 0 || forwarded.length > 256) return socket
+  const hops = forwarded.split(',')
+  const rightmost = hops[hops.length - 1] ?? ''
+  return normalizeIpLiteral(rightmost) ?? socket
+}
+
+
 /** Raw JSON bytes retained only long enough for upstream auth verification. */
 const rawJsonBodies = new WeakMap<object, Buffer>()
 
@@ -210,6 +472,13 @@ export interface ServiceMysqlConfig {
   user: string
   password: string
   database: string
+  /**
+   * Finite Knex/tarn pool bounds (M2.2a.2): `min` connections created
+   * eagerly (0 = fully lazy, the default) and `max` the hard ceiling.
+   * Validated as safe integers with 0 <= min <= max. Observable through the
+   * validated config only, never emitted alongside credentials.
+   */
+  pool: { min: number; max: number }
 }
 
 export interface ServiceConfig {
@@ -226,6 +495,38 @@ export interface ServiceConfig {
    * any present Origin fails closed 403 without permissive headers.
    */
   allowedOrigins: readonly string[]
+  /**
+   * Finite active-request admission bound (M2.2a.2): at most this many
+   * requests may be in flight past the public liveness route at once;
+   * readiness, authentication and repository work all sit behind it, and the
+   * next request fails typed 503 without being counted. Safe integer >= 1,
+   * default LIMITS.MAX_CONCURRENT_REQUESTS.
+   */
+  maxConcurrentRequests: number
+  /**
+   * Pre-auth requests admitted per fixed window per normalized remote IP
+   * (M2.2a.3). Integer >= RATE_LIMIT_MIN_PER_WINDOW (2, the documented
+   * minimal safe allowance: one deletion plus its exact idempotent retry in
+   * a fresh window), default LIMITS.PRE_AUTH_RATE_PER_MIN_PER_IP. Behind
+   * shared egress, configure `trustedProxy` so per-client forwarded keys
+   * apply; otherwise every peer behind one NAT shares this allowance.
+   */
+  preAuthRatePerMinPerIp: number
+  /**
+   * Authenticated requests admitted per fixed window per verified owner
+   * identity (M2.2a.3). Integer >= RATE_LIMIT_MIN_PER_WINDOW (2), default
+   * LIMITS.AUTH_RATE_PER_MIN_PER_IDENTITY. Each identity has its own bucket,
+   * so one owner's traffic can never consume another owner's allowance.
+   */
+  authRatePerMinPerIdentity: number
+  /**
+   * The one explicit trusted-proxy setting (M2.2a.3): an exact IP address
+   * that may supply `X-Forwarded-For` for pre-auth bucket keys. Empty (the
+   * default) means every forwarding header is ignored and the socket address
+   * is the only key. No proxy discovery, CIDR lists or header alternatives
+   * exist.
+   */
+  trustedProxy: string
 }
 
 /** Minimal Knex surface the service needs; avoids a hard type dependency. */
@@ -292,6 +593,37 @@ export interface ServiceAppState {
    * non-browser contract rejects any present Origin before authentication.
    */
   allowedOrigins?: readonly string[]
+  /**
+   * Finite active-request bound (M2.2a.2). Absent in unit probes only, which
+   * then default to LIMITS.MAX_CONCURRENT_REQUESTS.
+   */
+  maxConcurrentRequests?: number
+  /**
+   * Pre-auth per-IP window limit (M2.2a.3). Absent in unit probes only,
+   * which then default to LIMITS.PRE_AUTH_RATE_PER_MIN_PER_IP.
+   */
+  preAuthRatePerMinPerIp?: number
+  /**
+   * Authenticated per-identity window limit (M2.2a.3). Absent in unit probes
+   * only, which then default to LIMITS.AUTH_RATE_PER_MIN_PER_IDENTITY.
+   */
+  authRatePerMinPerIdentity?: number
+  /**
+   * The one explicit trusted-proxy address (M2.2a.3). Empty/absent means
+   * forwarding headers are ignored for pre-auth bucket keys.
+   */
+  trustedProxy?: string
+  /**
+   * Test seam: a pre-built pre-auth limiter (small window/maxKeys or fake
+   * clock). createServiceApp builds the default from configuration when
+   * absent; production code never injects one.
+   */
+  ipRateLimiter?: FixedWindowRateLimiter
+  /**
+   * Test seam: a pre-built authenticated-identity limiter. createServiceApp
+   * builds the default from configuration when absent.
+   */
+  identityRateLimiter?: FixedWindowRateLimiter
 }
 
 function configError(message: string, code: string = SERVICE_CONFIG_CODE): Error {
@@ -304,6 +636,18 @@ function authError(statusCode: number, code: string, description: string): Error
   const error = new Error(description) as Error & { code: string; statusCode: number }
   error.code = code
   error.statusCode = statusCode
+  return error
+}
+
+/**
+ * Typed redacted 429 (M2.2a.3) over the accepted envelope: ERR_RATE_LIMITED
+ * with the generic description and the protocol-schema optional
+ * `retryAfterSeconds` (whole seconds until the current window ends). Never
+ * echoes the key, IP, identity, counters or configuration.
+ */
+function rateLimitError(retryAfterSeconds: number): Error & { code: string; statusCode: number; retryAfterSeconds: number } {
+  const error = authError(429, SERVICE_RATE_LIMITED_CODE, 'rate limited') as Error & { code: string; statusCode: number; retryAfterSeconds: number }
+  error.retryAfterSeconds = retryAfterSeconds
   return error
 }
 
@@ -372,6 +716,63 @@ function validatePort(value: unknown): number {
 }
 
 /**
+ * Finite active-request bound (M2.2a.2): a safe integer >= 1, defaulting to
+ * the accepted planning limit. Generic typed message; never echoes the input.
+ */
+function parseMaxConcurrentRequests(value: unknown): number {
+  if (value === undefined || value === null || value === '') return LIMITS.MAX_CONCURRENT_REQUESTS
+  if (typeof value !== 'number' && typeof value !== 'string') {
+    throw configError('maxConcurrentRequests must be a positive integer')
+  }
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw configError('maxConcurrentRequests must be a positive integer')
+  }
+  return parsed
+}
+
+function parsePoolInteger(value: unknown, fallback: number, floor: number, message: string): number {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value !== 'number' && typeof value !== 'string') throw configError(message, SERVICE_MYSQL_CODE)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < floor) throw configError(message, SERVICE_MYSQL_CODE)
+  return parsed
+}
+
+/**
+ * Rate configuration (M2.2a.3): a safe integer floor of
+ * RATE_LIMIT_MIN_PER_WINDOW so every accepted setting still admits one
+ * deletion plus its exact idempotent retry within a fresh window, defaulting
+ * to the accepted M1 profile value. Generic typed message; never echoes the
+ * input.
+ */
+function parseRatePerWindow(value: unknown, fallback: number, message: string): number {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value !== 'number' && typeof value !== 'string') throw configError(message)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < RATE_LIMIT_MIN_PER_WINDOW) throw configError(message)
+  return parsed
+}
+
+/**
+ * Finite Knex/MySQL pool bounds (M2.2a.2): safe integers with
+ * 0 <= min <= max, defaulting to a fully lazy pool capped at
+ * LIMITS.DB_POOL_MAX. Generic typed messages; never echo configuration values.
+ */
+function parseMysqlPool(value: unknown): { min: number; max: number } {
+  if (value === undefined || value === null) return { min: 0, max: LIMITS.DB_POOL_MAX }
+  if (!isRecord(value)) {
+    throw configError('mysql pool must be finite integers with 0 <= min <= max', SERVICE_MYSQL_CODE)
+  }
+  const min = parsePoolInteger(value['min'], 0, 0, 'mysql pool min must be a non-negative integer')
+  const max = parsePoolInteger(value['max'], LIMITS.DB_POOL_MAX, 1, 'mysql pool max must be a positive integer')
+  if (min > max) {
+    throw configError('mysql pool must be finite integers with 0 <= min <= max', SERVICE_MYSQL_CODE)
+  }
+  return { min, max }
+}
+
+/**
  * Validate raw config input. Never echoes secrets: messages are generic and
  * never interpolate serverSecret, password, user, host or database values.
  */
@@ -394,6 +795,19 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
   const host = hostRaw === undefined ? '127.0.0.1' : String(hostRaw)
   if (host.length === 0 || host.length > 255) throw configError('mysql host is invalid', SERVICE_MYSQL_CODE)
   const port = portRaw === undefined ? 3306 : validatePort(portRaw)
+  const pool = parseMysqlPool(mysqlRaw['pool'])
+  const maxConcurrentRequests = parseMaxConcurrentRequests(input['maxConcurrentRequests'])
+  const preAuthRatePerMinPerIp = parseRatePerWindow(
+    input['preAuthRatePerMinPerIp'],
+    LIMITS.PRE_AUTH_RATE_PER_MIN_PER_IP,
+    'preAuthRatePerMinPerIp must be an integer of at least 2',
+  )
+  const authRatePerMinPerIdentity = parseRatePerWindow(
+    input['authRatePerMinPerIdentity'],
+    LIMITS.AUTH_RATE_PER_MIN_PER_IDENTITY,
+    'authRatePerMinPerIdentity must be an integer of at least 2',
+  )
+  const trustedProxy = parseTrustedProxy(input['trustedProxy'])
   let retention: 'permanent' = 'permanent'
   try {
     retention = parseRetentionDays(input['retention'] ?? input['retentionDays'])
@@ -405,10 +819,14 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
   const allowedOrigins = parseAllowedOrigins(input['allowedOrigins'])
   return {
     serverSecret,
-    mysql: { host, port, user, password, database },
+    mysql: { host, port, user, password, database, pool },
     retention,
     version,
     allowedOrigins,
+    maxConcurrentRequests,
+    preAuthRatePerMinPerIp,
+    authRatePerMinPerIdentity,
+    trustedProxy,
   }
 }
 
@@ -422,10 +840,15 @@ export function loadServiceConfigFromEnv(env: Record<string, string | undefined>
       user: env['MYSQL_USER'],
       password: env['MYSQL_PASSWORD'],
       database: env['MYSQL_DATABASE'],
+      pool: { min: env['MYSQL_POOL_MIN'], max: env['MYSQL_POOL_MAX'] },
     },
     retention: env['MESSAGE_BOX_STORE_RETENTION_DAYS'] ?? 'permanent',
     version: env['MESSAGE_BOX_STORE_VERSION'] ?? SERVICE_VERSION,
     allowedOrigins: env['MESSAGE_BOX_STORE_ALLOWED_ORIGINS'],
+    maxConcurrentRequests: env['MESSAGE_BOX_STORE_MAX_CONCURRENT_REQUESTS'],
+    preAuthRatePerMinPerIp: env['MESSAGE_BOX_STORE_PRE_AUTH_RATE_PER_MIN_PER_IP'],
+    authRatePerMinPerIdentity: env['MESSAGE_BOX_STORE_AUTH_RATE_PER_MIN_PER_IDENTITY'],
+    trustedProxy: env['MESSAGE_BOX_STORE_TRUSTED_PROXY'],
   })
 }
 
@@ -1080,7 +1503,7 @@ async function defaultMigrate(knex: ServiceKnex): Promise<string[]> {
 async function defaultCreateKnex(mysql: ServiceMysqlConfig): Promise<ServiceKnex> {
   // @ts-ignore - M1 runtime adapters are frozen .mjs; typed via storage.ts boundary
   const repository = (await import('./repository.mysql.mjs')) as {
-    createMysqlKnex(args: { host: string; port: number; user: string; password: string; database: string }): Promise<ServiceKnex>
+    createMysqlKnex(args: { host: string; port: number; user: string; password: string; database: string; pool?: { min: number; max: number } }): Promise<ServiceKnex>
   }
   return repository.createMysqlKnex({ ...mysql })
 }
@@ -1146,8 +1569,40 @@ async function defaultCreateAuthMiddleware(args: { wallet: unknown; sessionManag
  * authentication); an absent Origin keeps the private non-browser contract;
  * any other present Origin fails closed 403 without permissive headers.
  * The early bounds reuse the accepted M1 LIMITS constants and the existing
- * typed/redacted 413 envelope. Per-record MAX_BODY_BYTES outcomes, rate/
- * concurrency controls, cleanup and logging remain out of scope.
+ * typed/redacted 413 envelope. Per-record MAX_BODY_BYTES outcomes, cleanup
+ * and logging remain out of scope; the 429 rate window is M2.2a.3 below.
+ *
+ * M2.2a.2 admission (mbs-8g5.3.2.1.2, readiness exemption removed by
+ * mbs-8g5.3.2.1.2.1): a finite configured active-request bound is enforced
+ * after the public liveness route — the ONLY bypass, so /healthz stays
+ * available at the bound — and before the readiness probe, authentication,
+ * replay-window or repository work. A readiness flood therefore cannot queue
+ * unbounded checkDatabase work against the bounded pool: saturated /ready
+ * returns the redacted typed 503 without invoking the probe. Requests at or
+ * below the bound proceed; the next request
+ * fails typed 503 ERR_UNAVAILABLE without being counted. Each admitted
+ * request releases its slot exactly once on response finish or connection
+ * close — success, typed failures, thrown errors and client aborts all
+ * terminate in one of those events. Process-local by design: no cleanup or
+ * logging taxonomy, no distributed coordination.
+ *
+ * M2.2a.3 rate (mbs-8g5.3.2.1.3): two process-local aligned fixed-window
+ * limiters over the accepted M1 per-minute defaults. The pre-auth limiter
+ * runs after admission and before readiness/authentication, keyed by the
+ * normalized socket address — forwarding headers are ignored unless the one
+ * explicit trustedProxy setting equals that socket — so rate excess fails
+ * typed 429 before auth or repository work and without consuming an
+ * admission slot beyond the brief admitted pass-through. The identity
+ * limiter runs after the auth middleware and replay window, keyed only by
+ * the verified owner identity (handshake and unverified requests skip it),
+ * so one owner can never consume another owner's allowance and replay-flood
+ * rejections cannot burn a victim's bucket. Both maps are bounded
+ * (RATE_LIMIT_MAX_KEYS) with deterministic window expiry and overflow
+ * eviction, retain only bucket keys plus window/count integers (never auth
+ * material or ciphertext), and reuse the typed redacted ERR_RATE_LIMITED
+ * envelope with schema-valid retryAfterSeconds. Liveness still bypasses
+ * both; there is no distributed rate state, proxy discovery, metrics or
+ * policy engine.
  *
  * Express/middleware are imported lazily so the server subpath remains
  * importable in a clean packed consumer without server peers installed.
@@ -1239,13 +1694,75 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     res.status(200).json({ status: 'ok', version: state.version })
   })
 
+  // M2.2a.2 finite active-request admission (mbs-8g5.3.2.1.2; readiness
+  // included per mbs-8g5.3.2.1.2.1): at most maxConcurrentRequests requests
+  // may be in flight past the public liveness route above — the ONLY
+  // bypass, so /healthz stays available at the bound — and before the
+  // readiness probe, authentication, replay-window or repository work. The
+  // database-backed /ready route sits BELOW this middleware, so a readiness
+  // flood cannot queue unbounded checkDatabase work against the bounded
+  // pool: saturated /ready fails typed 503 via the shared ERR_UNAVAILABLE
+  // envelope without invoking the probe and without being counted.
+  // Responses rejected by earlier ingress gates (403/413/400) never reach
+  // this middleware and so never consume a slot. Each admitted request
+  // releases its slot exactly once on response finish or connection close —
+  // success, typed failures and thrown errors all terminate in one of those
+  // two events, and client aborts fire close. The released-flag guard makes
+  // double events (finish then close) safe. Process-local by design: no
+  // cleanup or logging taxonomy, no distributed coordination.
+  const maxConcurrentRequests = state.maxConcurrentRequests ?? LIMITS.MAX_CONCURRENT_REQUESTS
+  let activeRequests = 0
+  app.use((_req, res, next) => {
+    if (activeRequests >= maxConcurrentRequests) {
+      next(authError(503, SERVICE_UNAVAILABLE_CODE, 'service unavailable'))
+      return
+    }
+    activeRequests += 1
+    let released = false
+    const release = (): void => {
+      if (released) return
+      released = true
+      activeRequests -= 1
+    }
+    res.on('finish', release)
+    res.on('close', release)
+    next()
+  })
+
+  // M2.2a.3 pre-auth per-IP rate limit (mbs-8g5.3.2.1.3): after admission
+  // and before the readiness probe, authentication, replay window or
+  // repository work, so rate excess fails typed 429 without auth/database
+  // work; the admitted pass-through releases its slot on the 429 response
+  // like any other typed failure. Bucket keys are normalized socket
+  // addresses only — every forwarding header is ignored unless the single
+  // configured trustedProxy equals that socket, in which case the rightmost
+  // X-Forwarded-For hop is the key. Public liveness above still bypasses
+  // this limit. Process-local fixed window over the M1 per-minute default;
+  // no distributed counters or proxy discovery.
+  const trustedProxy = parseTrustedProxy(state.trustedProxy ?? '')
+  const ipRateLimiter = state.ipRateLimiter ?? createFixedWindowRateLimiter({
+    limit: state.preAuthRatePerMinPerIp ?? LIMITS.PRE_AUTH_RATE_PER_MIN_PER_IP,
+  })
+  app.use((req, _res, next) => {
+    const decision = ipRateLimiter.consume(resolveRateLimitIpKey(req, trustedProxy))
+    if (!decision.allowed) {
+      next(rateLimitError(decision.retryAfterSeconds ?? 1))
+      return
+    }
+    next()
+  })
+
   // Readiness (mbs-8g5.3.1.5, fail-closed probe gate mbs-8g5.3.1.5.1):
-  // public, two gates, no connection detail. First the migration gate
-  // (verified schema versions), then the database probe. The probe is
-  // REQUIRED for a ready result: absent, throwing and false all return the
-  // same typed ERR_UNAVAILABLE 503 with a generic description — never host,
-  // port, user, database, credential, driver text or probe error. Liveness
-  // above stays dependency-free and invokes neither check.
+  // public, two gates, no connection detail, now behind active-request
+  // admission (mbs-8g5.3.2.1.2.1) because it invokes the database probe.
+  // First the migration gate (verified schema versions), then the database
+  // probe. The probe is REQUIRED for a ready result: absent, throwing and
+  // false all return the same typed ERR_UNAVAILABLE 503 with a generic
+  // description — never host, port, user, database, credential, driver text
+  // or probe error. At the admission bound the shared typed 503 returns
+  // without reaching this handler, so checkDatabase is never invoked under
+  // saturation. Liveness above stays dependency-free, invokes neither check
+  // and bypasses admission entirely.
   app.get('/ready', async (_req: Request, res: Response) => {
     const readiness = state.checkReadiness()
     if (!readiness.ready) {
@@ -1322,6 +1839,38 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     // handshake path and otherwise requires a fresh request-id; see
     // createReplayGuard for the window (not single-use) semantics.
     app.use(createReplayGuard().middleware)
+    // M2.2a.3 post-auth per-identity rate limit (mbs-8g5.3.2.1.3): after
+    // the middleware and replay window so only a verified owner identity is
+    // ever a bucket key — the handshake path and any request without a
+    // valid verified identity skip it and keep failing through the existing
+    // 401 paths — and replay-window rejections cannot burn a victim's
+    // allowance. Buckets are per identity, so one owner can never consume
+    // another owner's; denials fail typed 429 before route/repository work
+    // (the already-held admission slot releases on the response like every
+    // other typed failure). Counters retain only the identity key plus
+    // window/count integers: never signatures, nonces, request ids, bodies
+    // or ciphertext. Process-local fixed window over the M1 per-minute
+    // default; no distributed counters or policy engine.
+    const identityRateLimiter = state.identityRateLimiter ?? createFixedWindowRateLimiter({
+      limit: state.authRatePerMinPerIdentity ?? LIMITS.AUTH_RATE_PER_MIN_PER_IDENTITY,
+    })
+    app.use((req, _res, next) => {
+      if (req.path === AUTH_HANDSHAKE_PATH) {
+        next()
+        return
+      }
+      const identityKey = (req as { auth?: { identityKey?: unknown } | null }).auth?.identityKey
+      if (typeof identityKey !== 'string' || !isIdentityKey(identityKey)) {
+        next()
+        return
+      }
+      const decision = identityRateLimiter.consume(identityKey)
+      if (!decision.allowed) {
+        next(rateLimitError(decision.retryAfterSeconds ?? 1))
+        return
+      }
+      next()
+    })
   }
 
   const handleArchiveBatch = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -1684,7 +2233,13 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
         return
       }
       if (statusCode === 429) {
-        res.status(429).json({ status: 'error', code, description: 'rate limited' })
+        // M2.2a.3: keep the accepted envelope and carry only the optional
+        // schema-valid whole-second backoff from the rate limiter; the key,
+        // IP, identity and counters are never echoed.
+        const retry = (err as { retryAfterSeconds?: unknown }).retryAfterSeconds
+        res.status(429).json(Number.isSafeInteger(retry) && (retry as number) >= 0
+          ? { status: 'error', code, description: 'rate limited', retryAfterSeconds: retry }
+          : { status: 'error', code, description: 'rate limited' })
         return
       }
       if (statusCode === 501) {
@@ -1776,6 +2331,10 @@ export async function createService(options: ServiceOptions): Promise<Service> {
     repository: resolvedStore,
     serverSecret: config.serverSecret,
     allowedOrigins: config.allowedOrigins,
+    maxConcurrentRequests: config.maxConcurrentRequests,
+    preAuthRatePerMinPerIp: config.preAuthRatePerMinPerIp,
+    authRatePerMinPerIdentity: config.authRatePerMinPerIdentity,
+    trustedProxy: config.trustedProxy,
   })
 
   async function migrate(): Promise<string[]> {

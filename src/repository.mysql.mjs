@@ -273,7 +273,7 @@ export function initializeMysqlUtcSession(connection, done) {
   })
 }
 
-export function createMysqlKnex({ host = '127.0.0.1', port = 3306, user, password, database }) {
+export function createMysqlKnex({ host = '127.0.0.1', port = 3306, user, password, database, pool }) {
   if (!user || !password || !database) {
     const e = new TypeError('MySQL user/password/database are required (via env, never committed)')
     e.code = 'ERR_MYSQL_CONFIG'
@@ -288,9 +288,12 @@ export function createMysqlKnex({ host = '127.0.0.1', port = 3306, user, passwor
       // session, a non-UTC MySQL SYSTEM time_zone shifts stored times (e.g.
       // Sydney +10h turns a +1h snapshot TTL into an immediate expiry).
       connection: { host, port, user, password, database, charset: 'utf8mb4', supportBigNumbers: true, bigNumberStrings: true, timezone: '+00:00' },
+      // M2.2a.2: optional finite pool bounds (0 <= min <= max) from the
+      // validated service config; defaults preserve the M1 lazy pool capped
+      // at 7. afterCreate keeps the UTC session on every created connection.
       pool: {
-        min: 0,
-        max: 7,
+        min: pool?.min ?? 0,
+        max: pool?.max ?? 7,
         afterCreate: initializeMysqlUtcSession,
       },
     }),
