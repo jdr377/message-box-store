@@ -38,14 +38,11 @@ import {
 import {
   assertNoInternalRetentionGap,
   assertNoRetentionGap,
+  assembleChangePage,
+  assembleSnapshotPage,
   boundFeedLimit,
   decodeSnapshotPosition,
-  encodeSnapshotPosition,
-  fitRecordsToPage,
-  historyPageOverheadBytes,
   matchesFeedFilter,
-  newChangesCursor,
-  newSnapshotCursor,
   retentionCutoffIso,
   validateChangesPosition,
   validateFeedOwner,
@@ -969,9 +966,6 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
     const ordered = allChangesOrdered(owner).filter((c) => BigInt(String(c.sequence)) > BigInt(C) && BigInt(String(c.sequence)) <= BigInt(W))
     const scanned = ordered.slice(0, bounded)
     assertNoInternalRetentionGap({ position: C, watermark: W, sequences: scanned.map((c) => String(c.sequence)), bounded, explicitCheckpoint })
-    if (scanned.length === 0) {
-      return { records: [], nextCursor: null, checkpoint: W, hasMore: false, watermark: W, epoch, serverTime }
-    }
     const candidates = []
     const candidateSeq = []
     for (const c of scanned) {
@@ -1006,26 +1000,21 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
       })
       candidateSeq.push(seq)
     }
-    const budgetCursor = newChangesCursor({ serverSecret, owner, epoch, filterDigest, watermark: W, position: W, ttlSeconds, nowSeconds: nowSec })
-    const overheadBytes = historyPageOverheadBytes({ records: [], nextCursor: budgetCursor, checkpoint: W, hasMore: true, watermark: W, epoch, serverTime })
-    const { admitted } = fitRecordsToPage({ records: candidates, limit: bounded, overheadBytes })
-    if (admitted.length < candidates.length) {
-      let lastIdx = -1
-      let count = 0
-      for (let i = 0; i < candidates.length && count < admitted.length; i += 1) {
-        if (candidates[i] === admitted[count]) {
-          lastIdx = i
-          count += 1
-        }
-      }
-      const checkpoint = lastIdx >= 0 ? candidateSeq[lastIdx] : C
-      const nextCursor = newChangesCursor({ serverSecret, owner, epoch, filterDigest, watermark: W, position: checkpoint, ttlSeconds, nowSeconds: nowSec })
-      return { records: admitted, nextCursor, checkpoint, hasMore: true, watermark: W, epoch, serverTime }
-    }
-    const checkpoint = String(scanned[scanned.length - 1].sequence)
-    const hasMore = BigInt(checkpoint) < BigInt(W)
-    const nextCursor = hasMore ? newChangesCursor({ serverSecret, owner, epoch, filterDigest, watermark: W, position: checkpoint, ttlSeconds, nowSeconds: nowSec }) : null
-    return { records: admitted, nextCursor, checkpoint: hasMore ? checkpoint : W, hasMore, watermark: W, epoch, serverTime }
+    return assembleChangePage({
+      candidates,
+      candidateSequences: candidateSeq,
+      previousPosition: C,
+      lastScannedSequence: scanned.length === 0 ? null : scanned[scanned.length - 1].sequence,
+      limit: bounded,
+      serverSecret,
+      owner,
+      epoch,
+      filterDigest,
+      watermark: W,
+      ttlSeconds,
+      nowSeconds: nowSec,
+      serverTime,
+    })
   }
 
   /**
@@ -1132,18 +1121,18 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
         }
       }
     }
-    const budgetLast = resolved[resolved.length - 1]
-    const budgetCursor = budgetLast ? newSnapshotCursor({ serverSecret, owner, epoch, filterDigest, watermark: W, position: encodeSnapshotPosition({ createdAtAtW: budgetLast.createdAt, recordKey: budgetLast.recordKey }), ttlSeconds, nowSeconds: nowSec }) : null
-    const overheadBytes = historyPageOverheadBytes({ records: [], nextCursor: budgetCursor, checkpoint: W, hasMore: Boolean(budgetCursor), watermark: W, epoch, serverTime })
-    const { admitted } = fitRecordsToPage({ records: resolved, limit: bounded, overheadBytes })
-    const hasMore = admitted.length < resolved.length
-    let nextCursor = null
-    if (hasMore) {
-      const last = admitted[admitted.length - 1]
-      const pos = encodeSnapshotPosition({ createdAtAtW: last.createdAt, recordKey: last.recordKey })
-      nextCursor = newSnapshotCursor({ serverSecret, owner, epoch, filterDigest, watermark: W, position: pos, ttlSeconds, nowSeconds: nowSec })
-    }
-    return { records: admitted, nextCursor, checkpoint: W, hasMore, watermark: W, epoch, serverTime }
+    return assembleSnapshotPage({
+      records: resolved,
+      limit: bounded,
+      serverSecret,
+      owner,
+      epoch,
+      filterDigest,
+      watermark: W,
+      ttlSeconds,
+      nowSeconds: nowSec,
+      serverTime,
+    })
   }
 
   function getStorageStats({ owner } = {}) {

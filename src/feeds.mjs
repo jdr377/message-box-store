@@ -258,6 +258,112 @@ export function historyPageOverheadBytes(page) {
   return new TextEncoder().encode(json).byteLength - new TextEncoder().encode(JSON.stringify(marker)).byteLength
 }
 
+/** Assemble one fixed-watermark changes page from adapter-normalized rows. */
+export function assembleChangePage({
+  candidates,
+  candidateSequences,
+  previousPosition,
+  lastScannedSequence,
+  limit,
+  serverSecret,
+  owner,
+  epoch,
+  filterDigest,
+  watermark,
+  ttlSeconds,
+  nowSeconds,
+  serverTime,
+}) {
+  if (candidates.length !== candidateSequences.length) {
+    throw feedError('ERR_INVALID_RECORD', 'candidate sequence alignment mismatch')
+  }
+  const W = String(watermark)
+  const cursorContext = { serverSecret, owner, epoch, filterDigest, watermark: W, ttlSeconds, nowSeconds }
+  const budgetCursor = newChangesCursor({ ...cursorContext, position: W })
+  const overheadBytes = historyPageOverheadBytes({
+    records: [],
+    nextCursor: budgetCursor,
+    checkpoint: W,
+    hasMore: true,
+    watermark: W,
+    epoch,
+    serverTime,
+  })
+  const { admitted } = fitRecordsToPage({ records: candidates, limit, overheadBytes })
+  if (admitted.length < candidates.length) {
+    const admittedIndex = admitted.length - 1
+    const checkpoint = admittedIndex >= 0
+      ? String(candidateSequences[admittedIndex])
+      : String(previousPosition)
+    return {
+      records: admitted,
+      nextCursor: newChangesCursor({ ...cursorContext, position: checkpoint }),
+      checkpoint,
+      hasMore: true,
+      watermark: W,
+      epoch,
+      serverTime,
+    }
+  }
+  if (lastScannedSequence === null || lastScannedSequence === undefined) {
+    return { records: admitted, nextCursor: null, checkpoint: W, hasMore: false, watermark: W, epoch, serverTime }
+  }
+  const scannedCheckpoint = String(lastScannedSequence)
+  const hasMore = BigInt(scannedCheckpoint) < BigInt(W)
+  return {
+    records: admitted,
+    nextCursor: hasMore ? newChangesCursor({ ...cursorContext, position: scannedCheckpoint }) : null,
+    checkpoint: hasMore ? scannedCheckpoint : W,
+    hasMore,
+    watermark: W,
+    epoch,
+    serverTime,
+  }
+}
+
+/** Assemble one fixed-watermark snapshot page from adapter-normalized rows. */
+export function assembleSnapshotPage({
+  records,
+  limit,
+  serverSecret,
+  owner,
+  epoch,
+  filterDigest,
+  watermark,
+  ttlSeconds,
+  nowSeconds,
+  serverTime,
+}) {
+  const W = String(watermark)
+  const cursorContext = { serverSecret, owner, epoch, filterDigest, watermark: W, ttlSeconds, nowSeconds }
+  const budgetLast = records[records.length - 1]
+  const budgetCursor = budgetLast
+    ? newSnapshotCursor({
+        ...cursorContext,
+        position: encodeSnapshotPosition({ createdAtAtW: budgetLast.createdAt, recordKey: budgetLast.recordKey }),
+      })
+    : null
+  const overheadBytes = historyPageOverheadBytes({
+    records: [],
+    nextCursor: budgetCursor,
+    checkpoint: W,
+    hasMore: Boolean(budgetCursor),
+    watermark: W,
+    epoch,
+    serverTime,
+  })
+  const { admitted } = fitRecordsToPage({ records, limit, overheadBytes })
+  const hasMore = admitted.length < records.length
+  const admittedLast = admitted[admitted.length - 1]
+  const nextCursor = hasMore
+    ? newSnapshotCursor({
+        ...cursorContext,
+        position: encodeSnapshotPosition({ createdAtAtW: admittedLast.createdAt, recordKey: admittedLast.recordKey }),
+      })
+    : null
+  return { records: admitted, nextCursor, checkpoint: W, hasMore, watermark: W, epoch, serverTime }
+}
+
 export function validateFeedFilter(filter = {}) {
   return validateSnapshotFilter(filter)
 }
