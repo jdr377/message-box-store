@@ -51,6 +51,8 @@ an authenticated `bun install`, replace both source imports, pin the exact
 version in `package.json` and `bun.lock`, remove the vendor tarball, and run
 MapApp's applicable checks. Do not merge the proof branch before that passes.
 
-The private repository was created; no commit, push, npm publication, or MapApp merge is
-recorded in this readiness snapshot. Those GitHub writes still require explicit user approval under
-Bead `mbs-8g5.5.3` and the private package task `mbs-ikl`.
+The user approved private source hosting and evaluation publication. The private
+repository was created and commit `0f83f9d` was pushed to `main`; GitHub
+visibility and remote HEAD were verified. The registry package remains
+unpublished while npm credentials are configured. MapApp still consumes the
+working tarball. Bead `mbs-8g5.5.3` is complete; `mbs-ikl` remains active.
