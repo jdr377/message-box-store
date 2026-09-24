@@ -4,7 +4,7 @@
   evaluation checkpoint, M4 open
 - **Date:** 2026-09-20
 - **Decision owners:** message-box-store maintainers
-- **Scope:** One independently publishable package, initially used as MapApp's
+- **Scope:** One independently publishable package, initially operated as a
   private service for archiving and retrieving encrypted Message Box envelopes
   across devices
 - **Out of scope:** Changing the Message Box protocol, forking
@@ -214,7 +214,7 @@ paid envelopes or run payment acceptance during history replay.
 ## Decision
 
 Build `message-box-store` as one independently publishable package, initially
-operated as a private MapApp service. It contains two cooperating halves with
+operated as a private service. It contains two cooperating halves with
 separate public exports:
 
 1. **Client/archive worker.** A browser- or Node-compatible worker wraps a
@@ -228,7 +228,7 @@ separate public exports:
    protocol.
 
 The package is a sibling, not an extension branch of Message Box Server. The
-initial deployment is the MapApp private service; a later public package can be
+initial deployment is a private service; a later public package can be
 adapted by other applications. It must not import Message Box Server's private
 tables, write directly to its database, or require a Message Box server fork.
 The two services may share an operator-managed database cluster only with

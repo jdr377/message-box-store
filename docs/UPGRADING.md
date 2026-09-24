@@ -60,7 +60,7 @@ and its integration can be disabled independently.
 ## Consumer upgrade
 
 - Import only documented package exports. Do not depend on `dist/`, private
-  source paths, MapApp code, or reference repositories.
+  source paths or reference repositories.
 - Preserve archive-before-ack. If history storage is unavailable, a safe worker
   leaves transport messages pending unless the application has an explicit,
   separately reviewed loss-accepting policy.

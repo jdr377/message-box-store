@@ -1,7 +1,7 @@
 # Third-party notices
 
 This inventory was generated from the installed packages used by the private
-`0.0.0` baseline. It records supplied license material; it is not legal advice,
+`0.1.0-private.0` candidate. It records supplied license material; it is not legal advice,
 approval to publish, or a license selection for `message-box-store`, which
 remains `UNLICENSED`.
 

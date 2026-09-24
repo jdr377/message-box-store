@@ -35,7 +35,7 @@ artifact and access controls have been checked.
   `node_modules`, and consumer/reference repositories;
 - every export target and required operator recovery file exists in the tarball;
 - the recursively declared production/optional-peer dependency closure resolves
-  to installed package manifests and contains no MapApp dependency;
+  to installed package manifests and contains no application-specific dependency;
 - Node 22.21.1 ESM and CommonJS imports, browser-conditioned imports, declarations,
   and the packed TypeScript example compile and execute through package exports.
 

@@ -14,7 +14,7 @@ remain available.
 ## Product and package
 
 `message-box-store` is one independently publishable TypeScript package and an
-additional private MapApp service for users' encrypted Message Box history.
+additional private service for users' encrypted Message Box history.
 The same package can be adapted by other applications. Message Box remains the
 temporary delivery queue; the store holds an opaque history copy.
 
@@ -208,7 +208,7 @@ patterns. It does not add metadata encryption or padding. Longer history
 retention means the service can retain this metadata longer than a temporary
 Message Box queue; do not claim metadata privacy.
 
-MapApp uses an explicitly configured HTTPS store origin. There is no overlay
+Clients use an explicitly configured HTTPS store origin. There is no overlay
 advertisement, discovery, or automatic host switching. Browser CORS is an
 exact configured-origin policy; it is not an authorization mechanism. No
 pricing or BRC-105 routes exist in the store service.

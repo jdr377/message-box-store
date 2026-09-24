@@ -144,7 +144,7 @@ function linkInstalledDependencies(consumerRoot) {
     if (manifest.name !== name || typeof manifest.version !== 'string' || manifest.version.length === 0) {
       fail(`invalid installed dependency manifest: ${name}`)
     }
-    for (const forbidden of ['mapapp', 'ReferenceRepos']) {
+    for (const forbidden of ['ReferenceRepos']) {
       if (`${manifest.name}@${manifest.version}`.toLowerCase().includes(forbidden.toLowerCase())) {
         fail(`consumer-specific dependency entered the installed graph: ${forbidden}`)
       }

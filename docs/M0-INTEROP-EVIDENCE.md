@@ -321,7 +321,7 @@ malformed response, or unrecognized result is `unknown`.
   the route. An unsigned request receives `401`; the route never selects an
   owner from request JSON.
 
-The configured MapApp Message Box host passed its read-only health check. Its
+The configured Message Box test host passed its read-only health check. Its
 quotes for two controlled test identities each returned
 `recipientFee: 0`, `deliveryFee: 0`, and `total: 0`. No live send was submitted,
 no transaction was broadcast, and zero satoshis were spent. These quotes are

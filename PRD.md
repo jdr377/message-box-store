@@ -11,7 +11,7 @@
 ## 1. Summary
 
 `message-box-store` is one independently publishable package, initially used
-as a private MapApp service for best-effort storage of encrypted Message Box
+as a private service for best-effort storage of encrypted Message Box
 history. It gives a user who controls one BSV wallet identity a history copy
 that can be retrieved on multiple devices, subject to retention, quota, and
 operator purge.
@@ -770,7 +770,7 @@ conventions:
 - no workstation publication or deployment without explicit operator release
   authority.
 
-V1 is one independently publishable package, initially private to MapApp, with
+V1 is one independently publishable package, initially private, with
 browser-safe client/protocol root exports and explicit server/storage
 subpaths. Registry scope, license and maintainer account are publication
 administration to resolve before M4; no publish/deploy action is authorized by
@@ -811,7 +811,7 @@ backup, then make clients re-sync from the advertised recovery epoch.
 ### M0 — Contract and threat-model sign-off
 
 - ADR/PRD reviewed.
-- One package shape, initial private MapApp use, MySQL 8/Knex production,
+- One package shape, initial private use, MySQL 8/Knex production,
   SQLite tests, cursor/record key, free-only transport, finite limits, retention,
   delete semantics, and the accepted privacy/security boundaries are frozen in
   `docs/M0-DECISIONS.md` and `docs/M0-THREAT-MODEL.md`.

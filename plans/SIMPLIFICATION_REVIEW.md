@@ -56,13 +56,13 @@ The intended order is transport → HTTP → inbound/outbound and replica prereq
 
 The proof must demonstrate A archives and acknowledges, B starts empty and decrypts, outbound history is readable, duplicates do not multiply records, archive failure leaves transport pending, and deletion converges without resurrection. Build the inbound version of that fixture early; extend the same fixture instead of inventing separate acceptance systems.
 
-Public-release Bead `mbs-8g5.5.2` remains open, at lower scheduling priority. Its security and recovery requirements are retained. Registry scope, publication ownership and broad ecosystem documentation do not block a local packed-consumer demonstration. This demonstration is **not** deployment approval, real-user rollout readiness, or canonical M4/MVP completion. Recovery remains tracked in `mbs-8g5.5.1`; MapApp adoption stays a separate downstream task.
+Public-release Bead `mbs-8g5.5.2` remains open, at lower scheduling priority. Its security and recovery requirements are retained. Registry scope, publication ownership and broad ecosystem documentation do not block a local packed-consumer demonstration. This demonstration is **not** deployment approval, real-user rollout readiness, or canonical M4/MVP completion. Recovery remains tracked in `mbs-8g5.5.1`; Application adoption stays a separate downstream task.
 
 ## Stop the expansion cycle
 
 Use the updated Bead as the unit of implementation and review. Fix failures introduced by that work inside the same Bead. Create another issue only for a genuinely separate requirement, and state whether it prevents the user workflow. Parent closure should collect existing evidence, not commission another open-ended audit.
 
-Do not add production local-cache adapters, provider registries, generalized repositories, new schedulers, paid transport, automatic resend, conversation models, additional databases, identity migration or MapApp dependencies. Prefer a concrete function that composes the existing capabilities. Preserve privacy, authorization, byte bounds, archive-before-ack and ambiguity handling; brevity does not justify deleting those guarantees.
+Do not add production local-cache adapters, provider registries, generalized repositories, new schedulers, paid transport, automatic resend, conversation models, additional databases, identity migration or application-specific dependencies. Prefer a concrete function that composes the existing capabilities. Preserve privacy, authorization, byte bounds, archive-before-ack and ambiguity handling; brevity does not justify deleting those guarantees.
 
 ## Larger reductions considered but not assigned
 
