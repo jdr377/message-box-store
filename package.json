@@ -1,6 +1,6 @@
 {
   "name": "@jdr377/message-box-store",
-  "version": "0.1.0-private.0",
+  "version": "0.1.0-beta.0",
   "description": "Application-independent encrypted message history storage for Message Box clients.",
   "type": "module",
   "bin": {
@@ -137,6 +137,8 @@
     "url": "git+https://github.com/jdr377/message-box-store.git"
   },
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public",
+    "tag": "next"
   }
 }

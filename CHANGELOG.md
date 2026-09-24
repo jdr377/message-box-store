@@ -2,10 +2,10 @@
 
 All notable changes to `message-box-store` will be recorded here.
 
-The first proposed private GitHub Packages artifact is
-`@jdr377/message-box-store@0.1.0-private.0`. Its original code is under
-Open BSV License Version 6, granted by `jdr377`; it remains unpublished.
-This is evaluation versioning, not public release approval.
+The first proposed public npm prerelease is
+`@jdr377/message-box-store@0.1.0-beta.0`. Its original code is under
+Open BSV License Version 6, granted by `jdr377`.
+This is evaluation versioning, not production release approval.
 
 ## Unreleased
 

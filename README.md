@@ -12,26 +12,20 @@ after its encrypted body is archived.
 
 ## Package status
 
-`0.1.0-private.0` is prepared for private evaluation on GitHub Packages. It is
-not a public release or a production availability promise. Node.js 22+ is
+`0.1.0-beta.0` is a proposed public npm prerelease for evaluation. It is
+not a production availability promise. Node.js 22+ is
 supported; the standalone service uses MySQL 8 with Knex and mysql2. The
 browser-facing entry points have no server or database imports.
 
 ## Install
 
-After private publication, configure the `@jdr377` scope for GitHub Packages
-and authenticate with an account that can read the package:
-
-```ini
-@jdr377:registry=https://npm.pkg.github.com
-```
+After publication to npmjs.com:
 
 ```sh
-npm install @jdr377/message-box-store@0.1.0-private.0
+npm install @jdr377/message-box-store@next
 ```
 
-Keep registry credentials in your user configuration or environment, outside
-source control. See [public package paths](docs/PUBLIC_SUBPATHS.md) for the
+See [public package paths](docs/PUBLIC_SUBPATHS.md) for the
 browser, server, and raw ESM exports.
 
 ## Client example

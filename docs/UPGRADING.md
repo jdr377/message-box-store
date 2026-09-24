@@ -1,6 +1,6 @@
 # Upgrade, compatibility, and rollback
 
-Status: proposed private `0.1.0-private.0` guidance. This document describes the implemented
+Status: proposed public prerelease `0.1.0-beta.0` guidance. This document describes the implemented
 upgrade boundaries; it does not approve a release, deployment, or compatibility
 promise. The release owner must approve the exact artifact and record its digest before publication.
 

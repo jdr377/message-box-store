@@ -2,14 +2,14 @@
 
 Status: partial M4 evidence for `mbs-8g5.5.2`; this is not release approval.
 
-The package is prepared as `@jdr377/message-box-store@0.1.0-private.0`
-for `https://npm.pkg.github.com`. The npm `private` flag is absent because it
-blocks any registry publication; this flag does not control GitHub package
-visibility. The package has not been published. Its original code is under
+The package is prepared as `@jdr377/message-box-store@0.1.0-beta.0`
+for public prerelease on `https://registry.npmjs.org/` under the `next` tag.
+The npm `private` flag is absent because it blocks registry publication.
+Its original code is under
 `LICENSE.txt` (Open BSV License Version 6, granted by jdr377). Independent
-security review, legal/notice review, release-owner approval, and private
-visibility verification remain open. Do not install it in a consumer until
-the published artifact and access controls have been checked.
+security review, legal/notice review, and production release approval remain
+open. Do not install it in a consumer until the published artifact and access
+controls have been checked.
 
 ## Functional requirements
 
@@ -64,8 +64,8 @@ remains open.
 - Measured deployment capacity and supported runtime/peer matrices must be
   approved. Current limit and saturation tests prove bounded behavior, not a
   production throughput promise.
-- The changelog and upgrade/compatibility/rollback guidance exist for the private
-  `0.1.0-private.0` baseline, and the direct-dependency notice inventory is packaged.
+- The changelog and upgrade/compatibility/rollback guidance exist for the public
+  `0.1.0-beta.0` candidate, and the direct-dependency notice inventory is packaged.
   Legal notice review, maintainer ownership, and final release notes must be
   approved and finalized.
 - An immutable release-candidate tarball and digest must be created only after

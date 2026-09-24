@@ -4,13 +4,15 @@ import { test } from 'node:test'
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
-test('M1 package targets GitHub Packages', () => {
+test('M1 package targets public npm prerelease', () => {
   assert.notEqual(pkg.private, true)
   assert.equal(pkg.name, '@jdr377/message-box-store')
   assert.equal(pkg.type, 'module')
   assert.equal(pkg.license, 'SEE LICENSE IN LICENSE.txt')
   assert.ok(existsSync(new URL('../LICENSE.txt', import.meta.url)))
-  assert.equal(pkg.publishConfig?.registry, 'https://npm.pkg.github.com')
+  assert.equal(pkg.publishConfig?.registry, 'https://registry.npmjs.org/')
+  assert.equal(pkg.publishConfig?.access, 'public')
+  assert.equal(pkg.publishConfig?.tag, 'next')
 })
 
 test('M1 exports resolve to existing browser-safe files', () => {
