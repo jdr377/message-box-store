@@ -496,13 +496,13 @@ test('package legacy proof entrypoint exposes guarded factories, not upstream co
   }
 
   await assert.rejects(
-    import('message-box-store/src/free-only-transport.mjs'),
+    import('@jdr377/message-box-store/src/free-only-transport.mjs'),
     (error) => error?.code === 'ERR_PACKAGE_PATH_NOT_EXPORTED',
   )
 })
 
 test('typed package root exposes the browser-safe guarded transport runtime', async () => {
-  const typed = await import('message-box-store')
+  const typed = await import('@jdr377/message-box-store')
   for (const name of [
     'bodyHash',
     'canonicalRecordKey',

@@ -6,7 +6,7 @@
 // stop cancels pending work and drains an in-flight pass under a finite
 // timeout while always resolving, outcomes stay compact and redacted with
 // only bounded counts or a typed ERR_* code, the pass passes the accepted M1
-// work bounds explicitly (batch 500 / items 1000 / snapshots 100), and the
+// work bounds explicitly (batch 500 / items 5000 / snapshots 100), and the
 // validated cleanupIntervalMs/cleanupOwners settings are observable on the
 // composed service. Active records stay under the enforced `permanent`
 // retention policy — no finite active-record retention is introduced.
@@ -143,7 +143,7 @@ function spyPurgeStore() {
 test('M2.2b.1 cleanup configuration validates finitely, redacted, with accepted defaults', async () => {
   const defaults = validateServiceConfig(baseConfig())
   assert.equal(defaults.cleanupIntervalMs, CLEANUP_INTERVAL_DEFAULT_MS)
-  assert.equal(defaults.cleanupIntervalMs, 3_600_000)
+  assert.equal(defaults.cleanupIntervalMs, 300_000)
   assert.deepEqual([...defaults.cleanupOwners], [])
   assert.ok(Object.isFrozen(defaults.cleanupOwners), 'cleanupOwners is a frozen exact list')
 
@@ -237,7 +237,7 @@ test('M2.2b.1 repository cleanup passes the accepted M1 bounds explicitly and ag
   assert.equal(snapshotArgs.batchSize, SNAPSHOT_PURGE_BATCH)
   assert.equal(snapshotArgs.batchSize, 500)
   assert.equal(snapshotArgs.maxItems, SNAPSHOT_PURGE_MAX_ITEMS_PER_CALL)
-  assert.equal(snapshotArgs.maxItems, 1000)
+  assert.equal(snapshotArgs.maxItems, 5000)
   assert.equal(snapshotArgs.maxSnapshots, SNAPSHOT_PURGE_MAX_SNAPSHOTS_PER_CALL)
   assert.equal(snapshotArgs.maxSnapshots, 100)
 

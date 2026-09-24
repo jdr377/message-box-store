@@ -14,6 +14,22 @@ security review, and release administration remain M4.
 The package can be transplanted into another repository and may be published
 after those gates are met; no publication or deployment is authorized here.
 
+## Private package installation
+
+The proposed evaluation package is `@jdr377/message-box-store@0.1.0-private.0`
+on GitHub Packages. It has not been published yet. A consumer can use this
+repository-level `.npmrc` registry mapping after private publication:
+
+```ini
+@jdr377:registry=https://npm.pkg.github.com
+```
+
+Keep credentials in the installing user's npm configuration or an environment
+variable, never in source control. A GitHub token with `read:packages` and
+access to the private package is required for installation. Publishing requires
+`write:packages` and release-owner approval. Confirm the package's private
+visibility and inspect its exact version and digest before changing consumers.
+
 ## The boundary
 
 Message Box is an authenticated **store-and-forward transport**. It accepts an
@@ -89,8 +105,8 @@ value is compatibility-only and must match that identity before reservation or
 network activity. The package root does not export
 a generic AuthFetch or guarded-wallet construction surface because either
 could be composed into an alternate direct-send path.
-These helpers are available from both `message-box-store` and
-`message-box-store/client`; the old M0 source paths are compatibility
+These helpers are available from both `@jdr377/message-box-store` and
+`@jdr377/message-box-store/client`; the old M0 source paths are compatibility
 re-exports of the same implementation.
 
 ```ts
@@ -99,7 +115,7 @@ import {
   createMessageBoxHttpSendCapability,
   prepareEncryptedBody,
   sendPreparedHttpOnce,
-} from 'message-box-store'
+} from '@jdr377/message-box-store'
 
 const messageBox = createFreeOnlyMessageBoxClient({
   walletClient,
@@ -148,7 +164,7 @@ guarded authenticated client. The origin is explicit, capability compatibility
 is checked, and mutation methods make no silent retries:
 
 ```ts
-import { MessageBoxStoreClient } from 'message-box-store'
+import { MessageBoxStoreClient } from '@jdr377/message-box-store'
 
 const history = new MessageBoxStoreClient({
   walletClient,
@@ -173,6 +189,8 @@ if (!archived.committed) throw new Error('archive was not confirmed')
 
 ## Documents
 
+- [Public package paths](./docs/PUBLIC_SUBPATHS.md) identifies supported
+  browser, server, typed, and raw ESM entry points.
 - [M0 decisions](./docs/M0-DECISIONS.md) freezes the v1 product, storage,
   transport, quota, deletion, record, cursor, and release boundaries.
 - [M0 threat model](./docs/M0-THREAT-MODEL.md) maps each threat to controls,
@@ -190,6 +208,8 @@ if (!archived.committed) throw new Error('archive was not confirmed')
   and operator preflight, forward migration, cache recovery, and rollback.
 - [Third-party notices](./THIRD_PARTY_NOTICES.md) inventories direct runtime and
   supported optional-peer licenses without selecting this package's license.
+- [Internal security pre-review](./docs/SECURITY_PRE_REVIEW.md) traces every M0
+  release-security gate and identifies the independent decisions still required.
 
 ## Product intent and implementation alignment
 
@@ -241,8 +261,8 @@ message-box-store/
 ```
 
 The first package can expose browser-safe client exports at the root and
-server-specific code through subpath exports such as `message-box-store/server`
-and `message-box-store/storage/knex`. Server-only database dependencies must
+server-specific code through subpath exports such as `@jdr377/message-box-store/server`
+and `@jdr377/message-box-store/storage/knex`. Server-only database dependencies must
 not enter the browser bundle.
 
 The M0 `.mjs` sources remain frozen interoperability and security proof

@@ -1,11 +1,10 @@
-import {
-  LIMITS,
-  utf8ByteLength,
-} from './protocol.mjs'
+import { LIMITS } from './protocol.mjs'
 import {
   assertSnapshotBinding,
   boundPurgeParams,
   generateSnapshotId,
+  MAX_SNAPSHOT_ITEMS_PER_OWNER,
+  MAX_SNAPSHOTS_PER_OWNER,
   matchesSnapshotFilter,
   snapshotExpiryIso,
   snapshotFilterHash,
@@ -17,27 +16,34 @@ import {
 
 const DELIVERY = new Set(['prepared', 'received', 'unknown', 'accepted', 'failed'])
 import {
+  archiveAdmissionOutcome,
+  archiveEpochChanged,
+  archiveExistingOutcome,
+  archiveInvalidOutcome,
   canonicalParamsHash,
+  auxiliaryQuotaExceeded,
   idempotencyConflict,
+  IDEMPOTENCY_TTL_MS,
+  MAX_IDEMPOTENCY_ROWS_PER_OWNER,
   rotateOwnerEpoch,
   sameImmutableRecord,
   validateArchiveInput,
+  validateArchiveBatchBounds,
   validateIdempotencyInput,
   validateStateMutationInput,
 } from './repository-contract.mjs'
 import {
   assertNoInternalRetentionGap,
-  assertNoRetentionGap,
+  assertRetainedChanges,
   assembleChangePage,
   assembleSnapshotPage,
   boundFeedLimit,
   decodeSnapshotPosition,
   matchesFeedFilter as matchesFeedFilterMysql,
+  prepareChangesRead,
   retentionCutoffIso,
-  validateChangesPosition,
   validateFeedOwner,
   validateServerSecret,
-  verifyChangesCursor,
   verifySnapshotCursor,
   FEED_START,
 } from './feeds.mjs'
@@ -294,10 +300,15 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
   async function checkIdempotencyTrx(trx, { owner, key, operation, params }) {
     if (key === undefined) return null
     validateIdempotencyInput(key)
+    await trx.raw(`DELETE FROM history_idempotency WHERE owner_identity_key = ? AND created_at <= ?`, [owner, toMysqlTimestamp(new Date(Date.now() - IDEMPOTENCY_TTL_MS).toISOString())])
     const paramsHash = canonicalParamsHash(params)
     const rows = await trx.raw(`SELECT operation, params_hash, result_json FROM history_idempotency WHERE owner_identity_key = ? AND idempotency_key = ?`, [owner, key])
     const existing = rows[0][0] ?? null
-    if (!existing) return { paramsHash, existing: null }
+    if (!existing) {
+      const count = Number((await trx.raw(`SELECT COUNT(*) AS n FROM history_idempotency WHERE owner_identity_key = ?`, [owner]))[0][0].n)
+      if (count >= MAX_IDEMPOTENCY_ROWS_PER_OWNER) auxiliaryQuotaExceeded('idempotency')
+      return { paramsHash, existing: null }
+    }
     if (existing.operation !== operation || existing.params_hash !== paramsHash) {
       idempotencyConflict()
     }
@@ -312,6 +323,12 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       paramsHash,
       JSON.stringify(result),
     ])
+  }
+
+  async function auditConflictTrx(trx, owner, recordKey, detail) {
+    await trx.raw(`INSERT INTO history_audit_events (owner_identity_key, kind, record_key, detail) VALUES (?, 'immutable-conflict', ?, ?)`, [owner, recordKey, detail])
+    await trx.raw(`DELETE FROM history_audit_events WHERE owner_identity_key = ? AND id NOT IN
+      (SELECT id FROM (SELECT id FROM history_audit_events WHERE owner_identity_key = ? ORDER BY id DESC LIMIT 200) kept)`, [owner, owner])
   }
 
   async function lockResource(trx, owner) {
@@ -358,54 +375,29 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
   }
 
   async function archiveBatch({ owner, epoch, records }) {
-    if (!Array.isArray(records) || records.length === 0) {
-      const e = new TypeError('records must be non-empty')
-      e.code = 'ERR_INVALID_RECORD'
-      throw e
-    }
-    if (records.length > L.MAX_BATCH_RECORDS) {
-      const e = new RangeError('batch record bound')
-      e.code = 'ERR_REQUEST_TOO_LARGE'
-      throw e
-    }
-    let batchBytes = 0
-    for (const r of records) batchBytes += typeof r?.body === 'string' ? utf8ByteLength(r.body) : 0
-    if (batchBytes > L.MAX_BATCH_BYTES) {
-      const e = new RangeError('batch byte bound')
-      e.code = 'ERR_REQUEST_TOO_LARGE'
-      throw e
-    }
+    validateArchiveBatchBounds(records, L)
     return withDeadlockRetry(() => knex.transaction(async (trx) => {
       consumeFailure('archiveBatch')
       const st = await ensureOwner(trx, owner)
       if (epoch !== st.epoch) {
-        return {
-          epoch: st.epoch,
-          committed: false,
-          outcomes: records.map((r, index) => ({ index, recordKey: r?.recordKey ?? null, outcome: 'epochChanged', errorCode: 'ERR_EPOCH_CHANGED' })),
-        }
+        return archiveEpochChanged(records, st.epoch)
       }
-      let projectedCount = st.recordCount
-      let projectedBytes = st.byteCount
+      const projected = { count: st.recordCount, bytes: st.byteCount }
       const planned = []
       for (let index = 0; index < records.length; index += 1) {
         const rec = records[index]
         const check = validateArchiveInput({ owner, epoch, record: rec, ownerEpoch: st.epoch })
         if (!check.valid) {
-          planned.push({ index, recordKey: rec?.recordKey ?? null, outcome: check.code === 'ERR_EPOCH_CHANGED' ? 'epochChanged' : 'invalid', errorCode: check.code })
+          planned.push(archiveInvalidOutcome(index, rec, check))
           continue
         }
         const existing = (await trx.raw(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`, [owner, check.recordKey]))[0][0] ?? null
         if (existing) {
-          if (sameImmutableRecord(normalizeMysqlImmutable(existing), { ...rec, bodyHash: check.bodyHash })) {
-            planned.push({ index, recordKey: check.recordKey, outcome: 'alreadyPresent', bodyHash: check.bodyHash })
-          } else {
-            await trx.raw(`INSERT INTO history_audit_events (owner_identity_key, kind, record_key, detail) VALUES (?, 'immutable-conflict', ?, 'same key different content')`, [
-              owner,
-              check.recordKey,
-            ])
-            planned.push({ index, recordKey: check.recordKey, outcome: 'conflict', errorCode: 'ERR_IMMUTABLE_CONFLICT' })
+          const outcome = archiveExistingOutcome(index, rec, check, normalizeMysqlImmutable(existing))
+          if (outcome.outcome === 'conflict') {
+            await auditConflictTrx(trx, owner, check.recordKey, 'same key different content')
           }
+          planned.push(outcome)
           continue
         }
         const lastChange = await latestChangeFor(trx, owner, check.recordKey)
@@ -422,13 +414,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
             continue
           }
         }
-        if (projectedCount + 1 > L.MAX_RECORDS_PER_OWNER || projectedBytes + check.bodyBytes > L.MAX_BYTES_PER_OWNER) {
-          planned.push({ index, recordKey: check.recordKey, outcome: 'quotaExceeded', errorCode: 'ERR_QUOTA_EXCEEDED' })
-          continue
-        }
-        projectedCount += 1
-        projectedBytes += check.bodyBytes
-        planned.push({ index, recordKey: check.recordKey, outcome: 'stored', bodyHash: check.bodyHash, bodyBytes: check.bodyBytes, validated: { ...rec } })
+        planned.push(archiveAdmissionOutcome(index, rec, check, projected, L))
       }
       let seq = BigInt(st.nextSequence)
       const at = new Date().toISOString().slice(0, 19).replace('T', ' ')
@@ -464,17 +450,17 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
               item.outcome = 'alreadyPresent'
               delete item.validated
               seq -= 1n
-              projectedCount -= 1
-              projectedBytes -= item.bodyBytes
+              projected.count -= 1
+              projected.bytes -= item.bodyBytes
               continue
             }
-            await trx.raw(`INSERT INTO history_audit_events (owner_identity_key, kind, record_key, detail) VALUES (?, 'immutable-conflict', ?, 'race duplicate')`, [owner, item.recordKey])
+            await auditConflictTrx(trx, owner, item.recordKey, 'race duplicate')
             item.outcome = 'conflict'
             item.errorCode = 'ERR_IMMUTABLE_CONFLICT'
             delete item.validated
             seq -= 1n
-            projectedCount -= 1
-            projectedBytes -= item.bodyBytes
+            projected.count -= 1
+            projected.bytes -= item.bodyBytes
             continue
           }
           throw error
@@ -494,8 +480,8 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       }
       await trx.raw(`UPDATE history_owner_state SET next_sequence = ?, record_count = ?, byte_count = ? WHERE owner_identity_key = ?`, [
         seq.toString(),
-        projectedCount,
-        projectedBytes,
+        projected.count,
+        projected.bytes,
         owner,
       ])
       return { epoch: st.epoch, committed: true, outcomes: planned }
@@ -761,6 +747,8 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
         members.push(record)
       }
       members.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.recordKey < b.recordKey ? -1 : 1))
+      const capacity = (await trx.raw(`SELECT COUNT(*) AS snapshots, COALESCE(SUM((SELECT COUNT(*) FROM history_snapshot_items i WHERE i.snapshot_id = s.snapshot_id)), 0) AS items FROM history_snapshots s WHERE s.owner_identity_key = ?`, [owner]))[0][0]
+      if (Number(capacity.snapshots) >= MAX_SNAPSHOTS_PER_OWNER || Number(capacity.items) + members.length > MAX_SNAPSHOT_ITEMS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
       const snapshotId = generateSnapshotId()
       const filterHash = snapshotFilterHash(filter)
       const expiresAt = snapshotExpiryIso().slice(0, 19).replace('T', ' ')
@@ -1002,46 +990,11 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
     const nowSec = nowSeconds ?? Math.floor(Date.now() / 1000)
     const serverTime = nowIsoValue ?? new Date().toISOString()
     const usage = await currentUsageMysql(owner)
-    let W
-    let C
-    let epoch
-    if ((afterSequence === undefined) !== (expectedEpoch === undefined)) {
-      const e = new Error('afterSequence and expectedEpoch must be supplied together')
-      e.code = 'ERR_INVALID_CURSOR'
-      throw e
-    }
-    const explicitCheckpoint = afterSequence !== undefined
-    if (explicitCheckpoint && cursor !== null && cursor !== undefined) {
-      const e = new Error('cursor and checkpoint mode are mutually exclusive')
-      e.code = 'ERR_INVALID_CURSOR'
-      throw e
-    }
-    if (explicitCheckpoint) {
-      validateChangesPosition(afterSequence)
-      if (expectedEpoch !== usage.epoch) {
-        const e = new Error('epoch changed; take a full snapshot')
-        e.code = 'ERR_EPOCH_CHANGED'
-        throw e
-      }
-      W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
-      C = afterSequence
-      epoch = usage.epoch
-      if (BigInt(C) > BigInt(W)) {
-        const e = new Error('checkpoint is beyond the current watermark')
-        e.code = 'ERR_INVALID_CURSOR'
-        throw e
-      }
-    } else if (cursor === null || cursor === undefined) {
-      W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
-      C = FEED_START
-      epoch = usage.epoch
-    } else {
-      const payload = verifyChangesCursor(cursor, { serverSecret, owner, expectedEpoch: usage.epoch, expectedFilterDigest: filterDigest, nowSeconds: nowSec })
-      W = String(payload.w)
-      C = String(payload.p)
-      epoch = String(payload.epoch)
-      validateChangesPosition(C)
-    }
+    const { W, C, epoch, explicitCheckpoint } = prepareChangesRead({
+      cursor, afterSequence, expectedEpoch, currentEpoch: usage.epoch,
+      watermark: () => usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString(),
+      serverSecret, owner, filterDigest, nowSeconds: nowSec,
+    })
     const boundary = (await knex.raw(`SELECT resync_through_sequence FROM history_change_boundaries WHERE owner_identity_key = ?`, [owner]))[0][0]
     if (boundary && BigInt(C) < BigInt(String(boundary.resync_through_sequence)) && BigInt(W) > BigInt(C)) {
       const e = new Error('legacy history cannot be reconstructed exactly; take a full snapshot')
@@ -1049,14 +1002,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       throw e
     }
     const earliest = await earliestChangeSequenceMysql(owner)
-    if (C !== FEED_START || explicitCheckpoint) {
-      assertNoRetentionGap({ position: C, earliest })
-      if (earliest === null && C !== W) {
-        const e = new Error('cursor outside retained history; take a full snapshot')
-        e.code = 'ERR_CURSOR_EXPIRED'
-        throw e
-      }
-    }
+    assertRetainedChanges({ position: C, watermark: W, earliest, explicitCheckpoint })
     // REPEATABLE READ: W was fixed at first-page commit boundary; all
     // continuations stay within (C,W] so interleaved commits cannot shift
     // membership mid-capture. Numeric DECIMAL ordering is exact in MySQL.
@@ -1233,9 +1179,11 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
     const itemCount = Number((await knex.raw(`SELECT COUNT(*) AS n FROM history_snapshot_items WHERE snapshot_id IN (SELECT snapshot_id FROM history_snapshots WHERE owner_identity_key = ?)`, [owner]))[0][0].n)
     const tombstoneCount = Number((await knex.raw(`SELECT COUNT(*) AS n FROM history_tombstones WHERE owner_identity_key = ?`, [owner]))[0][0].n)
     const changeDetailCount = Number((await knex.raw(`SELECT COUNT(*) AS n FROM history_change_details WHERE owner_identity_key = ?`, [owner]))[0][0].n)
+    const idempotencyCount = Number((await knex.raw(`SELECT COUNT(*) AS n FROM history_idempotency WHERE owner_identity_key = ?`, [owner]))[0][0].n)
+    const auditEventCount = Number((await knex.raw(`SELECT COUNT(*) AS n FROM history_audit_events WHERE owner_identity_key = ?`, [owner]))[0][0].n)
     return {
       live: { recordCount: usage.recordCount, byteCount: usage.byteCount, epoch: usage.epoch, nextSequence: usage.nextSequence },
-      physical: { changeCount, changeDetailCount, tombstoneCount, snapshotCount, snapshotItemCount: itemCount },
+      physical: { changeCount, changeDetailCount, tombstoneCount, snapshotCount, snapshotItemCount: itemCount, idempotencyCount, auditEventCount },
     }
   }
 

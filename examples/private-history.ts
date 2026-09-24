@@ -2,14 +2,14 @@ import {
   MessageBoxStoreClient,
   decryptArchivedBody,
   syncHistory,
-} from 'message-box-store'
+} from '@jdr377/message-box-store'
 import type {
   HistoryRecord,
   LocalReplica,
   MessageBoxDecryptWallet,
   SyncHistoryResult,
   WalletInterface,
-} from 'message-box-store'
+} from '@jdr377/message-box-store'
 
 export interface PrivateHistoryOptions {
   walletClient: WalletInterface

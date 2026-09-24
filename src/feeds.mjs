@@ -104,6 +104,51 @@ export function validateChangesPosition(position) {
   return position
 }
 
+/** Select a fixed change window without reading or mutating adapter state. */
+export function prepareChangesRead({ cursor, afterSequence, expectedEpoch, currentEpoch, watermark, serverSecret, owner, filterDigest, nowSeconds, validateWatermark = false }) {
+  if ((afterSequence === undefined) !== (expectedEpoch === undefined)) {
+    throw feedError('ERR_INVALID_CURSOR', 'afterSequence and expectedEpoch must be supplied together')
+  }
+  const explicitCheckpoint = afterSequence !== undefined
+  if (explicitCheckpoint && cursor !== null && cursor !== undefined) {
+    throw feedError('ERR_INVALID_CURSOR', 'cursor and checkpoint mode are mutually exclusive')
+  }
+  let W
+  let C = FEED_START
+  let epoch = currentEpoch
+  if (explicitCheckpoint) {
+    validateChangesPosition(afterSequence)
+    if (expectedEpoch !== currentEpoch) throw feedError('ERR_EPOCH_CHANGED', 'epoch changed; take a full snapshot')
+    W = watermark()
+    C = afterSequence
+    if (BigInt(C) > BigInt(W)) throw feedError('ERR_INVALID_CURSOR', 'checkpoint is beyond the current watermark')
+  } else if (cursor !== null && cursor !== undefined) {
+    const payload = verifyChangesCursor(cursor, { serverSecret, owner, expectedEpoch: currentEpoch, expectedFilterDigest: filterDigest, nowSeconds })
+    W = String(payload.w)
+    C = String(payload.p)
+    epoch = String(payload.epoch)
+    validateChangesPosition(C)
+  } else {
+    W = watermark()
+  }
+  if (validateWatermark && !explicitCheckpoint) {
+    try {
+      validateChangeSequence(W, 'watermark')
+    } catch {
+      throw feedError('ERR_INVALID_CURSOR', 'watermark malformed')
+    }
+  }
+  return { W, C, epoch, explicitCheckpoint }
+}
+
+export function assertRetainedChanges({ position, watermark, earliest, explicitCheckpoint }) {
+  if (position === FEED_START && !explicitCheckpoint) return
+  assertNoRetentionGap({ position, earliest })
+  if (earliest === null && position !== watermark) {
+    throw feedError('ERR_CURSOR_EXPIRED', 'cursor outside retained history; take a full snapshot')
+  }
+}
+
 /**
  * Retention-gap expiry: purged sequences in the unapplied range force a
  * snapshot resync. earliest is the minimum retained sequence for the owner

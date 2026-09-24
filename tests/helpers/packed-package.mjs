@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -72,6 +72,7 @@ export function createPackedPackageFixture() {
     if (typeof filename !== 'string') throw new Error('npm pack did not report a tarball')
     run('tar', ['-xzf', join(packDir, filename), '-C', stagingDir], { cwd: repositoryRoot, env: process.env })
     const installedRoot = join(consumerRoot, 'node_modules', packageJson.name)
+    mkdirSync(dirname(installedRoot), { recursive: true })
     renameSync(join(stagingDir, 'package'), installedRoot)
     linkRuntimeDependencies(consumerRoot, packageJson)
     const require = createRequire(join(consumerRoot, 'package.json'))

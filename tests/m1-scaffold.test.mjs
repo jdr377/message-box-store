@@ -4,12 +4,12 @@ import { test } from 'node:test'
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 
-test('M1 package remains private until release authority', () => {
-  assert.equal(pkg.private, true)
-  assert.equal(pkg.name, 'message-box-store')
+test('M1 package targets GitHub Packages', () => {
+  assert.notEqual(pkg.private, true)
+  assert.equal(pkg.name, '@jdr377/message-box-store')
   assert.equal(pkg.type, 'module')
   assert.ok(pkg.license === 'UNLICENSED' || pkg.private === true)
-  assert.ok(!pkg.publishConfig, 'no publishConfig until M4 release administration')
+  assert.equal(pkg.publishConfig?.registry, 'https://npm.pkg.github.com')
 })
 
 test('M1 exports resolve to existing browser-safe files', () => {

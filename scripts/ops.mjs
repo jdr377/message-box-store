@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 try {
   await import('dotenv/config')
 } catch {

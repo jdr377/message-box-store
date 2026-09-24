@@ -1,0 +1,194 @@
+{
+  "scope": "Recursive src/*.{js,mjs,cjs,ts,mts,cts}; declarations excluded; nonblank means trim().length > 0",
+  "totals": {
+    "gross": 12145,
+    "production": 11696,
+    "testFixtures": 449,
+    "fileCount": 30
+  },
+  "files": [
+    {
+      "path": "src/canonical-runtime.js",
+      "kind": "production",
+      "nonblankLines": 4,
+      "sha256": "5c09f7a8bc557a8841d79cc11b5c1acf93fcc492d125ac20ad59c15e3eb74710"
+    },
+    {
+      "path": "src/canonical.js",
+      "kind": "production",
+      "nonblankLines": 390,
+      "sha256": "3cb39bdb75cf8b59c664fc2879743ccd9024113b0acc3fff61e0a7afb75baf22"
+    },
+    {
+      "path": "src/canonical.ts",
+      "kind": "production",
+      "nonblankLines": 43,
+      "sha256": "dd424edb81260e76c4c0707331928b56ef5178f72f01469ae2b0ae92e3dc28d8"
+    },
+    {
+      "path": "src/client.ts",
+      "kind": "production",
+      "nonblankLines": 444,
+      "sha256": "79fc5705e0959afc772d61b3e8c857773199866ce4e1dfc383e4e80b68919e78"
+    },
+    {
+      "path": "src/envelope-runtime.js",
+      "kind": "production",
+      "nonblankLines": 92,
+      "sha256": "2e9ee8d08038e3dddf9f4c11ad90ad0423d882a764e8274759cb51cf80b1aabb"
+    },
+    {
+      "path": "src/feeds.mjs",
+      "kind": "production",
+      "nonblankLines": 361,
+      "sha256": "eb01a9c086a8978f8ea7e7f5054b2a4ada5b04d98bc0f67517af86a989ec5886"
+    },
+    {
+      "path": "src/free-only-transport.mjs",
+      "kind": "production",
+      "nonblankLines": 410,
+      "sha256": "3a99f0f8dc416639005c2d167e2ea589a8f2c401117fe716dccc6d77f0d88871"
+    },
+    {
+      "path": "src/inbound.ts",
+      "kind": "production",
+      "nonblankLines": 254,
+      "sha256": "ebc742f8ad373ac88561c3d675f21fe38948f3d632d5afd8c8a97ef35ca47fac"
+    },
+    {
+      "path": "src/index.mjs",
+      "kind": "production",
+      "nonblankLines": 33,
+      "sha256": "ee4ac67db6c5790f223cbcb8357f6499b552309af08f2afb08a5c8edfdc4be3c"
+    },
+    {
+      "path": "src/m0-authsocket-fixture.mjs",
+      "kind": "test-fixture",
+      "nonblankLines": 138,
+      "sha256": "b9774ed80fc623b7d54ede0b50f05e49ad3b41d52dc4a95963f9eca979c09ed0"
+    },
+    {
+      "path": "src/m0-envelope.mjs",
+      "kind": "test-fixture",
+      "nonblankLines": 11,
+      "sha256": "20c62374b3822ebfb1b535e1d9ff71f7c07cc89e04fddbcd601a19a19bcbfbdd"
+    },
+    {
+      "path": "src/m0-message-box-fixture.mjs",
+      "kind": "test-fixture",
+      "nonblankLines": 294,
+      "sha256": "5d02f67d76d1bd7f377cb2ac8b4f15fd9dc75855d20ea9a5d3b67e9dece3dcfa"
+    },
+    {
+      "path": "src/m0-outbound-http-send.mjs",
+      "kind": "test-fixture",
+      "nonblankLines": 6,
+      "sha256": "6970b1a2dbb54d7363a62d63e7bf8a3baa9f525150eb28edb6addf2938b4c4a1"
+    },
+    {
+      "path": "src/migrations.mjs",
+      "kind": "production",
+      "nonblankLines": 711,
+      "sha256": "c249d66c140895471f62beeb20b7179e17036b4035fb737c14dfc42f8da085fa"
+    },
+    {
+      "path": "src/outbound-runtime.js",
+      "kind": "production",
+      "nonblankLines": 210,
+      "sha256": "bd77cae8a4ccde1575a943542e8d7c09eccb62107ac77170016760846c02fce1"
+    },
+    {
+      "path": "src/outbound.ts",
+      "kind": "production",
+      "nonblankLines": 129,
+      "sha256": "fa8fe46ed52373a27206cfa02163623c2801a3717a9f026b4c250d8560d3076c"
+    },
+    {
+      "path": "src/protocol.mjs",
+      "kind": "production",
+      "nonblankLines": 793,
+      "sha256": "63aa8c5535f8097af1111d1ea2d1d5ba77da553014f8c601b8f6bab720a0d100"
+    },
+    {
+      "path": "src/protocol.ts",
+      "kind": "production",
+      "nonblankLines": 209,
+      "sha256": "d4a8232eec9f71fc21996931271989941ea033e65cce1645788e9f50f5184d99"
+    },
+    {
+      "path": "src/replica-store.ts",
+      "kind": "production",
+      "nonblankLines": 81,
+      "sha256": "76bd7163c23be7be6c26ffd9af264eb3e462e1b49c745647c905e474acc8ca02"
+    },
+    {
+      "path": "src/replica.ts",
+      "kind": "production",
+      "nonblankLines": 273,
+      "sha256": "a7bbc3867e175dfce3ffd1516b6e86402fd36859ab84af73a55f613d223352a8"
+    },
+    {
+      "path": "src/repository-contract.mjs",
+      "kind": "production",
+      "nonblankLines": 168,
+      "sha256": "a3b21e38c1c9c24598508be5e4dcc25c789c8a563c156f6a334f1c99cef4c033"
+    },
+    {
+      "path": "src/repository.mjs",
+      "kind": "production",
+      "nonblankLines": 983,
+      "sha256": "bd8cacfdc1a4daabc7e8f365a0bf5793097a2aa7c71bef703a5f31cdbc10dd84"
+    },
+    {
+      "path": "src/repository.mysql.mjs",
+      "kind": "production",
+      "nonblankLines": 1238,
+      "sha256": "5afbd70b41ef3eda7b3cba03d4a8a38d61daacf9eb8012a3bd7312a3bb95c905"
+    },
+    {
+      "path": "src/repository.sqlite.mjs",
+      "kind": "production",
+      "nonblankLines": 1183,
+      "sha256": "0904ea44cfe08922135fee583c7746996f4bc782262d503f255c77caf1ef27b0"
+    },
+    {
+      "path": "src/restore-recovery.mjs",
+      "kind": "production",
+      "nonblankLines": 178,
+      "sha256": "2ce0751becbc1fbe972e3e908bd64fc50c10101ed782808bfd9deace81d1ef2f"
+    },
+    {
+      "path": "src/server.ts",
+      "kind": "production",
+      "nonblankLines": 124,
+      "sha256": "082e288221bb74644dd23126a37bf8e51d0204111c3237ee5d3807c9591febc2"
+    },
+    {
+      "path": "src/service.ts",
+      "kind": "production",
+      "nonblankLines": 3041,
+      "sha256": "87d7f42d33a30b18b6272770a1d1c9bf66d4022f4cd61af0cd1a8fc9f5a212f0"
+    },
+    {
+      "path": "src/snapshots.mjs",
+      "kind": "production",
+      "nonblankLines": 141,
+      "sha256": "33e574e7cbbc65f801f537cb9aa122d6c7b3267f820a8d794e83afbb49cea8d0"
+    },
+    {
+      "path": "src/storage.ts",
+      "kind": "production",
+      "nonblankLines": 98,
+      "sha256": "484fe680389512937e1e3c5aaa4a1f665f8a8d70773d017075602083be2c3592"
+    },
+    {
+      "path": "src/worker.ts",
+      "kind": "production",
+      "nonblankLines": 105,
+      "sha256": "5bbab398de76509ecbe48b54a48828700fb7f85c7e8ff1975a1dc06eeefd1f01"
+    }
+  ],
+  "capturedAt": "2026-09-24T12:45:49.692Z",
+  "gitHead": "7d84a747b521e4ded19535c74039fea99e0658ee",
+  "sourceStatus": "M src/inbound.ts"
+}

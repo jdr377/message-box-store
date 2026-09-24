@@ -98,7 +98,11 @@ function configuredHosts(client: FreeOnlyMessageBoxClient, requested?: readonly 
 function validateRawPage(value: unknown): RawPage {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Message Box returned a malformed page')
   const page = value as Record<string, unknown>
-  if (!Array.isArray(page.messages) || typeof page.hasMore !== 'boolean' || !Number.isSafeInteger(page.nextOffset) || (page.nextOffset as number) < 0) {
+  if (!Array.isArray(page.messages) || typeof page.hasMore !== 'boolean' || !Number.isSafeInteger(page.offset) || (page.offset as number) < 0 || (page.nextOffset !== undefined && (!Number.isSafeInteger(page.nextOffset) || (page.nextOffset as number) < 0))) {
+    throw new TypeError('Message Box returned a malformed page')
+  }
+  const nextOffset = page.nextOffset === undefined ? (page.offset as number) + page.messages.length : page.nextOffset as number
+  if (nextOffset !== (page.offset as number) + page.messages.length || (page.hasMore && page.messages.length === 0)) {
     throw new TypeError('Message Box returned a malformed page')
   }
   const messages: RawMessage[] = page.messages.map((value) => {
@@ -109,7 +113,7 @@ function validateRawPage(value: unknown): RawPage {
     }
     return { messageId: record.messageId, sender: record.sender, body: exactEncryptedBody(record.body) }
   })
-  return { messages, hasMore: page.hasMore, nextOffset: page.nextOffset as number }
+  return { messages, hasMore: page.hasMore, nextOffset }
 }
 
 /** Validate either the canonical body or the exact payment-free transport wrapper without reserializing it. */

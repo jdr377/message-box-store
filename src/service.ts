@@ -282,7 +282,7 @@ export const RATE_LIMIT_MIN_PER_WINDOW = 2
  * bounded owner list for the per-owner change purge. No job framework, no
  * distributed lock, no metrics taxonomy.
  */
-export const CLEANUP_INTERVAL_DEFAULT_MS = 3_600_000
+export const CLEANUP_INTERVAL_DEFAULT_MS = 300_000
 export const CLEANUP_INTERVAL_MIN_MS = 1_000
 export const CLEANUP_OWNERS_MAX = 64
 export const CLEANUP_STOP_DEFAULT_TIMEOUT_MS = 5_000
@@ -643,7 +643,7 @@ export interface ServiceConfig {
   trustedProxy: string
   /**
    * Explicit cleanup schedule interval in milliseconds (M2.2b.1). Safe
-   * integer >= 1000, default 3_600_000 (one hour). Only this one bounded
+   * integer >= 1000, default 300_000 (five minutes). Only this one bounded
    * pass is scheduled; there is no job framework or distributed lock.
    */
   cleanupIntervalMs: number
@@ -884,28 +884,20 @@ function validatePort(value: unknown): number {
   return port
 }
 
+function parseBoundedInteger(value: unknown, fallback: number, floor: number, message: string, code = SERVICE_CONFIG_CODE): number {
+  if (value === undefined || value === null || value === '') return fallback
+  if (typeof value !== 'number' && typeof value !== 'string') throw configError(message, code)
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < floor) throw configError(message, code)
+  return parsed
+}
+
 /**
  * Finite active-request bound (M2.2a.2): a safe integer >= 1, defaulting to
  * the accepted planning limit. Generic typed message; never echoes the input.
  */
 function parseMaxConcurrentRequests(value: unknown): number {
-  if (value === undefined || value === null || value === '') return LIMITS.MAX_CONCURRENT_REQUESTS
-  if (typeof value !== 'number' && typeof value !== 'string') {
-    throw configError('maxConcurrentRequests must be a positive integer')
-  }
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    throw configError('maxConcurrentRequests must be a positive integer')
-  }
-  return parsed
-}
-
-function parsePoolInteger(value: unknown, fallback: number, floor: number, message: string): number {
-  if (value === undefined || value === null || value === '') return fallback
-  if (typeof value !== 'number' && typeof value !== 'string') throw configError(message, SERVICE_MYSQL_CODE)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < floor) throw configError(message, SERVICE_MYSQL_CODE)
-  return parsed
+  return parseBoundedInteger(value, LIMITS.MAX_CONCURRENT_REQUESTS, 1, 'maxConcurrentRequests must be a positive integer')
 }
 
 /**
@@ -916,11 +908,7 @@ function parsePoolInteger(value: unknown, fallback: number, floor: number, messa
  * input.
  */
 function parseRatePerWindow(value: unknown, fallback: number, message: string): number {
-  if (value === undefined || value === null || value === '') return fallback
-  if (typeof value !== 'number' && typeof value !== 'string') throw configError(message)
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < RATE_LIMIT_MIN_PER_WINDOW) throw configError(message)
-  return parsed
+  return parseBoundedInteger(value, fallback, RATE_LIMIT_MIN_PER_WINDOW, message)
 }
 
 /**
@@ -933,8 +921,8 @@ function parseMysqlPool(value: unknown): { min: number; max: number } {
   if (!isRecord(value)) {
     throw configError('mysql pool must be finite integers with 0 <= min <= max', SERVICE_MYSQL_CODE)
   }
-  const min = parsePoolInteger(value['min'], 0, 0, 'mysql pool min must be a non-negative integer')
-  const max = parsePoolInteger(value['max'], LIMITS.DB_POOL_MAX, 1, 'mysql pool max must be a positive integer')
+  const min = parseBoundedInteger(value['min'], 0, 0, 'mysql pool min must be a non-negative integer', SERVICE_MYSQL_CODE)
+  const max = parseBoundedInteger(value['max'], LIMITS.DB_POOL_MAX, 1, 'mysql pool max must be a positive integer', SERVICE_MYSQL_CODE)
   if (min > max) {
     throw configError('mysql pool must be finite integers with 0 <= min <= max', SERVICE_MYSQL_CODE)
   }
@@ -944,18 +932,10 @@ function parseMysqlPool(value: unknown): { min: number; max: number } {
 /**
  * M2.2b.1 explicit cleanup interval (mbs-8g5.3.2.2.1): a safe integer floor
  * of CLEANUP_INTERVAL_MIN_MS so a configuration typo cannot become a hot
- * loop, defaulting to one hour. Generic typed message; never echoes input.
+ * loop, defaulting to five minutes. Generic typed message; never echoes input.
  */
 function parseCleanupInterval(value: unknown): number {
-  if (value === undefined || value === null || value === '') return CLEANUP_INTERVAL_DEFAULT_MS
-  if (typeof value !== 'number' && typeof value !== 'string') {
-    throw configError('cleanupIntervalMs must be an integer of at least 1000')
-  }
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < CLEANUP_INTERVAL_MIN_MS) {
-    throw configError('cleanupIntervalMs must be an integer of at least 1000')
-  }
-  return parsed
+  return parseBoundedInteger(value, CLEANUP_INTERVAL_DEFAULT_MS, CLEANUP_INTERVAL_MIN_MS, 'cleanupIntervalMs must be an integer of at least 1000')
 }
 
 /**
@@ -993,15 +973,7 @@ function parseCleanupOwners(value: unknown): readonly string[] {
  * Generic typed message; never echoes the input.
  */
 function parseShutdownDrainTimeout(value: unknown): number {
-  if (value === undefined || value === null || value === '') return SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS
-  if (typeof value !== 'number' && typeof value !== 'string') {
-    throw configError('shutdownDrainTimeoutMs must be a non-negative integer')
-  }
-  const parsed = Number(value)
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw configError('shutdownDrainTimeoutMs must be a non-negative integer')
-  }
-  return parsed
+  return parseBoundedInteger(value, SHUTDOWN_DRAIN_TIMEOUT_DEFAULT_MS, 0, 'shutdownDrainTimeoutMs must be a non-negative integer')
 }
 
 /**
@@ -1043,12 +1015,7 @@ export function validateServiceConfig(input: unknown): ServiceConfig {
   const cleanupIntervalMs = parseCleanupInterval(input['cleanupIntervalMs'])
   const cleanupOwners = parseCleanupOwners(input['cleanupOwners'])
   const shutdownDrainTimeoutMs = parseShutdownDrainTimeout(input['shutdownDrainTimeoutMs'])
-  let retention: 'permanent' = 'permanent'
-  try {
-    retention = parseRetentionDays(input['retention'] ?? input['retentionDays'])
-  } catch (error) {
-    throw error
-  }
+  const retention = parseRetentionDays(input['retention'] ?? input['retentionDays'])
   const versionRaw = input['version']
   const version = typeof versionRaw === 'string' && versionRaw.length > 0 ? versionRaw : SERVICE_VERSION
   const allowedOrigins = parseAllowedOrigins(input['allowedOrigins'])
@@ -1197,14 +1164,10 @@ function utf8Length(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return isRecord(value)
-}
-
 /** Reject query parameters that are not part of the route's exact contract. */
 function validateMutationQuery(query: unknown, allowed: ReadonlySet<string>): void {
   if (query === undefined || query === null) return
-  if (!isPlainRecord(query)) throw invalidError('query must be an object')
+  if (!isRecord(query)) throw invalidError('query must be an object')
   for (const key of Object.keys(query)) {
     if (!allowed.has(key)) throw invalidError('query carries unknown fields')
   }
@@ -1243,7 +1206,7 @@ export function validatePathRecordKey(value: unknown): string {
  * separately by assertArchiveOwnership (403) before any repository access.
  */
 export function validateArchiveBatchBody(body: unknown): { epoch: string; records: Array<Record<string, unknown>> } {
-  if (!isPlainRecord(body)) throw invalidError('request body must be a JSON object')
+  if (!isRecord(body)) throw invalidError('request body must be a JSON object')
   const { epoch, records, ...rest } = body
   if (Object.keys(rest).length > 0) throw invalidError('request carries unknown fields')
   const validEpoch = validateEpochShape(epoch)
@@ -1253,7 +1216,7 @@ export function validateArchiveBatchBody(body: unknown): { epoch: string; record
   }
   let batchBytes = 0
   for (const record of records) {
-    if (!isPlainRecord(record)) throw invalidError('record must be an object')
+    if (!isRecord(record)) throw invalidError('record must be an object')
     for (const key of Object.keys(record)) {
       if (!ARCHIVE_ALLOWED_KEYS.has(key)) throw invalidError('record carries unknown fields')
     }
@@ -1327,7 +1290,7 @@ export function validatePatchStateInput(args: { pathRecordKey: unknown; body: un
 } {
   validateMutationQuery(args.query, PATCH_QUERY_ALLOWED_KEYS)
   const recordKey = validatePathRecordKey(args.pathRecordKey)
-  if (!isPlainRecord(args.body)) throw invalidError('request body must be a JSON object')
+  if (!isRecord(args.body)) throw invalidError('request body must be a JSON object')
   for (const key of Object.keys(args.body)) {
     if (!PATCH_ALLOWED_KEYS.has(key)) throw invalidError('request carries unknown fields')
   }
@@ -1354,8 +1317,8 @@ export function validatePatchStateInput(args: { pathRecordKey: unknown; body: un
 function optionalIdempotencyKey(query: unknown, body: unknown): string | undefined {
   let fromQuery: unknown
   let fromBody: unknown
-  if (isPlainRecord(query)) fromQuery = query['idempotencyKey']
-  if (isPlainRecord(body)) fromBody = body['idempotencyKey']
+  if (isRecord(query)) fromQuery = query['idempotencyKey']
+  if (isRecord(body)) fromBody = body['idempotencyKey']
   if (fromQuery !== undefined && fromBody !== undefined && fromQuery !== fromBody) {
     throw invalidError('idempotencyKey must agree across query and body')
   }
@@ -1374,10 +1337,10 @@ export function validateDeleteOneInput(args: { pathRecordKey: unknown; query: un
 } {
   validateMutationQuery(args.query, DELETE_ONE_QUERY_ALLOWED_KEYS)
   const recordKey = validatePathRecordKey(args.pathRecordKey)
-  if (args.body !== undefined && !isPlainRecord(args.body)) {
+  if (args.body !== undefined && !isRecord(args.body)) {
     throw invalidError('request body must be a JSON object')
   }
-  if (isPlainRecord(args.body)) {
+  if (isRecord(args.body)) {
     for (const key of Object.keys(args.body)) {
       if (!DELETE_ONE_BODY_ALLOWED_KEYS.has(key)) throw invalidError('request carries unknown fields')
     }
@@ -1399,10 +1362,10 @@ export function validateDeleteAllInput(args: { query: unknown; body: unknown }):
   expectedEpoch: string | undefined
 } {
   validateMutationQuery(args.query, DELETE_ALL_QUERY_ALLOWED_KEYS)
-  if (args.body !== undefined && !isPlainRecord(args.body)) {
+  if (args.body !== undefined && !isRecord(args.body)) {
     throw invalidError('request body must be a JSON object')
   }
-  if (isPlainRecord(args.body)) {
+  if (isRecord(args.body)) {
     for (const key of Object.keys(args.body)) {
       if (!DELETE_ALL_BODY_ALLOWED_KEYS.has(key)) throw invalidError('request carries unknown fields')
     }
@@ -1410,8 +1373,8 @@ export function validateDeleteAllInput(args: { query: unknown; body: unknown }):
   const idempotencyKey = optionalIdempotencyKey(args.query, args.body)
   let fromQuery: unknown
   let fromBody: unknown
-  if (isPlainRecord(args.query)) fromQuery = args.query['expectedEpoch']
-  if (isPlainRecord(args.body)) fromBody = args.body['expectedEpoch']
+  if (isRecord(args.query)) fromQuery = args.query['expectedEpoch']
+  if (isRecord(args.body)) fromBody = args.body['expectedEpoch']
   if (fromQuery !== undefined && fromBody !== undefined && fromQuery !== fromBody) {
     throw invalidError('expectedEpoch must agree across query and body')
   }
@@ -1479,22 +1442,22 @@ function parseCursorParam(value: unknown): string | null {
   return value
 }
 
-function extractFeedFilter(query: Record<string, unknown>): { direction?: string; messageBox?: string; participant?: string } {
+function extractFeedFilter(query: Record<string, unknown>, prefix = ''): { direction?: string; messageBox?: string; participant?: string } {
   const filter: { direction?: string; messageBox?: string; participant?: string } = {}
   if (query['direction'] !== undefined) {
     const direction = query['direction']
-    if (direction !== 'inbound' && direction !== 'outbound') throw invalidError('direction must be inbound or outbound')
+    if (direction !== 'inbound' && direction !== 'outbound') throw invalidError(`${prefix}direction must be inbound or outbound`)
     filter.direction = direction as string
   }
   if (query['messageBox'] !== undefined) {
     const messageBox = query['messageBox']
-    if (typeof messageBox !== 'string' || messageBox.length === 0) throw invalidError('messageBox must be a non-empty string')
+    if (typeof messageBox !== 'string' || messageBox.length === 0) throw invalidError(`${prefix}messageBox must be a non-empty string`)
     filter.messageBox = messageBox
   }
   if (query['participant'] !== undefined) {
     const participant = query['participant']
     if (typeof participant !== 'string' || !isIdentityKey(participant)) {
-      throw invalidError('participant must be an identity key')
+      throw invalidError(`${prefix}participant must be an identity key`)
     }
     filter.participant = participant
   }
@@ -1510,7 +1473,7 @@ export function validateBrowseQuery(query: unknown): {
   limit: number | undefined
   after: { createdAt: string; recordKey: string } | null
 } {
-  if (!isPlainRecord(query)) throw invalidError('query must be an object')
+  if (!isRecord(query)) throw invalidError('query must be an object')
   for (const key of Object.keys(query)) {
     if (!BROWSE_QUERY_KEYS.has(key)) throw invalidError('query carries unknown fields')
   }
@@ -1556,7 +1519,7 @@ export function validateChangesQuery(query: unknown): {
   limit: number | undefined
   filter: { direction?: string; messageBox?: string; participant?: string }
 } {
-  if (!isPlainRecord(query)) throw invalidError('query must be an object')
+  if (!isRecord(query)) throw invalidError('query must be an object')
   for (const key of Object.keys(query)) {
     if (!CHANGES_QUERY_KEYS.has(key)) throw invalidError('query carries unknown fields')
   }
@@ -1599,7 +1562,7 @@ export function validateSnapshotPageQuery(query: unknown): {
   cursor: string | null
   limit: number | undefined
 } {
-  if (!isPlainRecord(query)) throw invalidError('query must be an object')
+  if (!isRecord(query)) throw invalidError('query must be an object')
   for (const key of Object.keys(query)) {
     if (!SNAPSHOT_PAGE_QUERY_KEYS.has(key)) throw invalidError('query carries unknown fields')
   }
@@ -1621,44 +1584,24 @@ export function validateSnapshotCreateBody(body: unknown): {
   filter: { direction?: string; messageBox?: string; participant?: string }
 } {
   if (body === undefined) return { filter: {} }
-  if (!isPlainRecord(body)) throw invalidError('request body must be a JSON object')
+  if (!isRecord(body)) throw invalidError('request body must be a JSON object')
   for (const key of Object.keys(body)) {
     if (!SNAPSHOT_CREATE_ALLOWED_KEYS.has(key)) throw invalidError('request carries unknown fields')
   }
   const record = body as Record<string, unknown>
   const rawFilter = record['filter']
   if (rawFilter === undefined) return { filter: {} }
-  if (!isPlainRecord(rawFilter)) throw invalidError('filter must be an object')
+  if (!isRecord(rawFilter)) throw invalidError('filter must be an object')
   for (const key of Object.keys(rawFilter)) {
     if (!SNAPSHOT_FILTER_ALLOWED_KEYS.has(key)) throw invalidError('filter carries unknown fields')
   }
-  const typed = rawFilter as Record<string, unknown>
-  const filter: { direction?: string; messageBox?: string; participant?: string } = {}
-  if (typed['direction'] !== undefined) {
-    if (typed['direction'] !== 'inbound' && typed['direction'] !== 'outbound') {
-      throw invalidError('filter.direction must be inbound or outbound')
-    }
-    filter.direction = typed['direction'] as string
-  }
-  if (typed['messageBox'] !== undefined) {
-    if (typeof typed['messageBox'] !== 'string' || (typed['messageBox'] as string).length === 0) {
-      throw invalidError('filter.messageBox must be a non-empty string')
-    }
-    filter.messageBox = typed['messageBox'] as string
-  }
-  if (typed['participant'] !== undefined) {
-    if (typeof typed['participant'] !== 'string' || !isIdentityKey(typed['participant'] as string)) {
-      throw invalidError('filter.participant must be an identity key')
-    }
-    filter.participant = typed['participant'] as string
-  }
-  return { filter }
+  return { filter: extractFeedFilter(rawFilter, 'filter.') }
 }
 
 /** Validate GET /v1/history/usage query (no parameters; unknown keys reject). */
 export function validateUsageQuery(query: unknown): Record<string, never> {
   if (query === undefined || query === null) return {}
-  if (!isPlainRecord(query)) throw invalidError('query must be an object')
+  if (!isRecord(query)) throw invalidError('query must be an object')
   if (Object.keys(query).length > 0) throw invalidError('query carries unknown fields')
   return {}
 }
@@ -2499,10 +2442,24 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     return state.serverSecret
   }
 
-  const sendRepositoryError = (error: unknown, next: NextFunction): void => {
-    const mapped = mapRepositoryError(error)
-    next(authError(mapped.status, mapped.code, mapped.description))
-  }
+  // Keep verified-owner selection, ownership checks and repository error
+  // mapping identical for every protected route. Each callback validates its
+  // own input before requesting the repository, preserving error precedence.
+  const protectedRoute = (handle: (req: Request, owner: string) => Promise<unknown>): RequestHandler =>
+    async (req, res, next) => {
+      try {
+        const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
+        assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
+        res.status(200).json(await handle(req, ownerIdentityKey))
+      } catch (error) {
+        const statusCode = (error as { statusCode?: unknown })?.statusCode
+        if (Number.isSafeInteger(statusCode)) next(error)
+        else {
+          const mapped = mapRepositoryError(error)
+          next(authError(mapped.status, mapped.code, mapped.description))
+        }
+      }
+    }
 
   if (state.authMiddleware) {
     app.use((req, _res, next) => {
@@ -2574,117 +2531,70 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     })
   }
 
-  const handleArchiveBatch = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      validateMutationQuery(req.query, ARCHIVE_QUERY_ALLOWED_KEYS)
-      const { epoch, records } = validateArchiveBatchBody(req.body)
-      // Ownership gate before any repository access (403 on direction
-      // mismatch). Per-record content stays a repository outcome.
-      assertArchiveOwnership({ owner: ownerIdentityKey, records })
-      const repository = requireRepository()
-      const result = await repository.archiveBatch({
-        owner: ownerIdentityKey,
-        epoch,
-        records: records as unknown as Parameters<HistoryRepository['archiveBatch']>[0]['records'],
-      })
-      res.status(200).json(result)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
-    }
-  }
+  const handleArchiveBatch = protectedRoute(async (req, ownerIdentityKey) => {
+    validateMutationQuery(req.query, ARCHIVE_QUERY_ALLOWED_KEYS)
+    const { epoch, records } = validateArchiveBatchBody(req.body)
+    // Ownership gate before any repository access (403 on direction
+    // mismatch). Per-record content stays a repository outcome.
+    assertArchiveOwnership({ owner: ownerIdentityKey, records })
+    const repository = requireRepository()
+    const result = await repository.archiveBatch({
+      owner: ownerIdentityKey,
+      epoch,
+      records: records as unknown as Parameters<HistoryRepository['archiveBatch']>[0]['records'],
+    })
+    return result
+  })
 
-  const handlePatchState = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { recordKey, newState, expectedRevision, idempotencyKey } = validatePatchStateInput({
-        pathRecordKey: (req.params as Record<string, unknown>)?.['recordKey'],
-        query: req.query,
-        body: req.body,
-      })
-      const repository = requireRepository()
-      if (typeof (repository as { patchState?: unknown }).patchState !== 'function') {
-        next(authError(501, SERVICE_UNAVAILABLE_CODE, 'service not ready: repository not configured'))
-        return
-      }
-      const result = await (repository as HistoryRepository & {
-        patchState(args: { owner: string; recordKey: string; newState: string; expectedRevision: string; idempotencyKey: string }): Promise<unknown>
-      }).patchState({ owner: ownerIdentityKey, recordKey, newState, expectedRevision, idempotencyKey })
-      res.status(200).json(result)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
+  const handlePatchState = protectedRoute(async (req, ownerIdentityKey) => {
+    const { recordKey, newState, expectedRevision, idempotencyKey } = validatePatchStateInput({
+      pathRecordKey: (req.params as Record<string, unknown>)?.['recordKey'],
+      query: req.query,
+      body: req.body,
+    })
+    const repository = requireRepository()
+    if (typeof (repository as { patchState?: unknown }).patchState !== 'function') {
+      throw authError(501, SERVICE_UNAVAILABLE_CODE, 'service not ready: repository not configured')
     }
-  }
+    const result = await (repository as HistoryRepository & {
+      patchState(args: { owner: string; recordKey: string; newState: string; expectedRevision: string; idempotencyKey: string }): Promise<unknown>
+    }).patchState({ owner: ownerIdentityKey, recordKey, newState, expectedRevision, idempotencyKey })
+    return result
+  })
 
-  const handleDeleteOne = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { recordKey, idempotencyKey } = validateDeleteOneInput({
-        pathRecordKey: (req.params as Record<string, unknown>)?.['recordKey'],
-        query: req.query,
-        body: req.body,
-      })
-      const repository = requireRepository()
-      if (typeof (repository as { deleteRecord?: unknown }).deleteRecord !== 'function') {
-        next(authError(501, SERVICE_UNAVAILABLE_CODE, 'service not ready: repository not configured'))
-        return
-      }
-      const result = await (repository as HistoryRepository & {
-        deleteRecord(args: { owner: string; recordKey: string; idempotencyKey?: string }): Promise<unknown>
-      }).deleteRecord(idempotencyKey === undefined
-        ? { owner: ownerIdentityKey, recordKey }
-        : { owner: ownerIdentityKey, recordKey, idempotencyKey })
-      res.status(200).json(result)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
+  const handleDeleteOne = protectedRoute(async (req, ownerIdentityKey) => {
+    const { recordKey, idempotencyKey } = validateDeleteOneInput({
+      pathRecordKey: (req.params as Record<string, unknown>)?.['recordKey'],
+      query: req.query,
+      body: req.body,
+    })
+    const repository = requireRepository()
+    if (typeof (repository as { deleteRecord?: unknown }).deleteRecord !== 'function') {
+      throw authError(501, SERVICE_UNAVAILABLE_CODE, 'service not ready: repository not configured')
     }
-  }
+    const result = await (repository as HistoryRepository & {
+      deleteRecord(args: { owner: string; recordKey: string; idempotencyKey?: string }): Promise<unknown>
+    }).deleteRecord(idempotencyKey === undefined
+      ? { owner: ownerIdentityKey, recordKey }
+      : { owner: ownerIdentityKey, recordKey, idempotencyKey })
+    return result
+  })
 
-  const handleDeleteAll = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { idempotencyKey, expectedEpoch } = validateDeleteAllInput({ query: req.query, body: req.body })
-      const repository = requireRepository()
-      if (typeof (repository as { deleteAll?: unknown }).deleteAll !== 'function') {
-        next(authError(501, SERVICE_UNAVAILABLE_CODE, 'service not ready: repository not configured'))
-        return
-      }
-      const result = await (repository as HistoryRepository & {
-        deleteAll(args: { owner: string; idempotencyKey?: string; expectedEpoch?: string }): Promise<unknown>
-      }).deleteAll({
-        owner: ownerIdentityKey,
-        ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
-        ...(expectedEpoch === undefined ? {} : { expectedEpoch }),
-      })
-      res.status(200).json(result)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
+  const handleDeleteAll = protectedRoute(async (req, ownerIdentityKey) => {
+    const { idempotencyKey, expectedEpoch } = validateDeleteAllInput({ query: req.query, body: req.body })
+    const repository = requireRepository()
+    if (typeof (repository as { deleteAll?: unknown }).deleteAll !== 'function') {
+      throw authError(501, SERVICE_UNAVAILABLE_CODE, 'service not ready: repository not configured')
     }
-  }
+    const result = await (repository as HistoryRepository & {
+      deleteAll(args: { owner: string; idempotencyKey?: string; expectedEpoch?: string }): Promise<unknown>
+    }).deleteAll({
+      owner: ownerIdentityKey,
+      ...(idempotencyKey === undefined ? {} : { idempotencyKey }),
+      ...(expectedEpoch === undefined ? {} : { expectedEpoch }),
+    })
+    return result
+  })
 
   app.post(ARCHIVE_BATCH_PATH, handleArchiveBatch)
   app.patch('/v1/history/records/:recordKey/state', handlePatchState)
@@ -2701,126 +2611,70 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
    * keys, filters or auth material.
    */
 
-  const handleBrowse = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { filter, limit, after } = validateBrowseQuery(req.query)
-      const repository = requireRepository()
-      const result = await repository.listBrowse({
-        owner: ownerIdentityKey,
-        filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
-        ...(limit === undefined ? {} : { limit }),
-        ...(after === null ? {} : { after }),
-      })
-      res.status(200).json({ records: result.items, nextAfter: result.nextAfter })
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
-    }
-  }
+  const handleBrowse = protectedRoute(async (req, ownerIdentityKey) => {
+    const { filter, limit, after } = validateBrowseQuery(req.query)
+    const repository = requireRepository()
+    const result = await repository.listBrowse({
+      owner: ownerIdentityKey,
+      filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
+      ...(limit === undefined ? {} : { limit }),
+      ...(after === null ? {} : { after }),
+    })
+    return { records: result.items, nextAfter: result.nextAfter }
+  })
 
-  const handleChanges = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { cursor, afterSequence, expectedEpoch, limit, filter } = validateChangesQuery(req.query)
-      const repository = requireRepository()
-      const serverSecret = requireServerSecret()
-      const page = await repository.listChangesPage({
-        owner: ownerIdentityKey,
-        serverSecret,
-        cursor,
-        ...(afterSequence === undefined ? {} : { afterSequence }),
-        ...(expectedEpoch === undefined ? {} : { expectedEpoch }),
-        ...(limit === undefined ? {} : { limit }),
-        filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
-      })
-      res.status(200).json(page)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
-    }
-  }
+  const handleChanges = protectedRoute(async (req, ownerIdentityKey) => {
+    const { cursor, afterSequence, expectedEpoch, limit, filter } = validateChangesQuery(req.query)
+    const repository = requireRepository()
+    const serverSecret = requireServerSecret()
+    const page = await repository.listChangesPage({
+      owner: ownerIdentityKey,
+      serverSecret,
+      cursor,
+      ...(afterSequence === undefined ? {} : { afterSequence }),
+      ...(expectedEpoch === undefined ? {} : { expectedEpoch }),
+      ...(limit === undefined ? {} : { limit }),
+      filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
+    })
+    return page
+  })
 
-  const handleSnapshotCreate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      if (isPlainRecord(req.query) && Object.keys(req.query).length > 0) {
-        throw invalidError('query carries unknown fields')
-      }
-      const { filter } = validateSnapshotCreateBody(req.body)
-      const repository = requireRepository()
-      const result = await repository.createSnapshot({
-        owner: ownerIdentityKey,
-        filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
-      })
-      res.status(200).json(result)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
+  const handleSnapshotCreate = protectedRoute(async (req, ownerIdentityKey) => {
+    if (isRecord(req.query) && Object.keys(req.query).length > 0) {
+      throw invalidError('query carries unknown fields')
     }
-  }
+    const { filter } = validateSnapshotCreateBody(req.body)
+    const repository = requireRepository()
+    const result = await repository.createSnapshot({
+      owner: ownerIdentityKey,
+      filter: filter as { direction?: 'inbound' | 'outbound'; messageBox?: string; participant?: string },
+    })
+    return result
+  })
 
-  const handleSnapshotPage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      const { snapshotId, cursor, limit } = validateSnapshotPageQuery(req.query)
-      const repository = requireRepository()
-      const serverSecret = requireServerSecret()
-      const page = await repository.listSnapshotPage({
-        owner: ownerIdentityKey,
-        serverSecret,
-        snapshotId,
-        cursor,
-        ...(limit === undefined ? {} : { limit }),
-      })
-      if (page === null) {
-        next(authError(404, SERVICE_INVALID_CURSOR_CODE, 'invalid request'))
-        return
-      }
-      res.status(200).json(page)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
+  const handleSnapshotPage = protectedRoute(async (req, ownerIdentityKey) => {
+    const { snapshotId, cursor, limit } = validateSnapshotPageQuery(req.query)
+    const repository = requireRepository()
+    const serverSecret = requireServerSecret()
+    const page = await repository.listSnapshotPage({
+      owner: ownerIdentityKey,
+      serverSecret,
+      snapshotId,
+      cursor,
+      ...(limit === undefined ? {} : { limit }),
+    })
+    if (page === null) {
+      throw authError(404, SERVICE_INVALID_CURSOR_CODE, 'invalid request')
     }
-  }
+    return page
+  })
 
-  const handleUsage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      validateUsageQuery(req.query)
-      const repository = requireRepository()
-      const usage = await repository.getUsage({ owner: ownerIdentityKey })
-      res.status(200).json(usage)
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
-    }
-  }
+  const handleUsage = protectedRoute(async (req, ownerIdentityKey) => {
+    validateUsageQuery(req.query)
+    const repository = requireRepository()
+    const usage = await repository.getUsage({ owner: ownerIdentityKey })
+    return usage
+  })
 
   /**
    * M2.1e capabilities route (mbs-8g5.3.1.5), behind the same unsigned gate,
@@ -2834,29 +2688,18 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
    * that violates the canonical epoch grammar fails closed as 500 rather
    * than emitting a schema-invalid document.
    */
-  const handleCapabilities = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { ownerIdentityKey } = resolveRequestOwner(req as { auth?: { identityKey?: unknown } | null })
-      assertNoOwnerOverride({ owner: ownerIdentityKey, body: req.body, query: req.query, params: req.params })
-      validateUsageQuery(req.query)
-      const repository = requireRepository()
-      const usage = await repository.getUsage({ owner: ownerIdentityKey })
-      const epoch = usage.epoch
-      if (typeof epoch !== 'string' || !EPOCH_RE.test(epoch)) {
-        const error = new TypeError('repository reported a non-canonical epoch') as Error & { code: string }
-        error.code = SERVICE_INTERNAL_CODE
-        throw error
-      }
-      res.status(200).json(buildCapabilities({ epoch }))
-    } catch (error) {
-      const statusCode = (error as { statusCode?: unknown })?.statusCode
-      if (Number.isSafeInteger(statusCode)) {
-        next(error)
-        return
-      }
-      sendRepositoryError(error, next)
+  const handleCapabilities = protectedRoute(async (req, ownerIdentityKey) => {
+    validateUsageQuery(req.query)
+    const repository = requireRepository()
+    const usage = await repository.getUsage({ owner: ownerIdentityKey })
+    const epoch = usage.epoch
+    if (typeof epoch !== 'string' || !EPOCH_RE.test(epoch)) {
+      const error = new TypeError('repository reported a non-canonical epoch') as Error & { code: string }
+      error.code = SERVICE_INTERNAL_CODE
+      throw error
     }
-  }
+    return buildCapabilities({ epoch })
+  })
 
   // Browse shares the archive collection path with a different method:
   // POST archives, GET browses the live keyset (non-authoritative).

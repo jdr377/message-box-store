@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
@@ -54,6 +54,13 @@ function assertArtifactInventory(metadata) {
   const files = metadata?.files
   if (!Array.isArray(files) || files.length === 0) fail('npm pack did not report its artifact inventory')
   const paths = files.map((entry) => String(entry?.path ?? '').replaceAll('\\', '/'))
+  const runtimeSource = new Set([
+    'src/canonical-runtime.js', 'src/canonical.js', 'src/protocol.mjs',
+    'src/repository-contract.mjs', 'src/repository.mjs',
+    'src/repository.sqlite.mjs', 'src/repository.mysql.mjs',
+    'src/snapshots.mjs', 'src/feeds.mjs', 'src/migrations.mjs',
+    'src/restore-recovery.mjs',
+  ])
   const forbidden = [
     /^\.env(?:\.|$)/,
     /(^|\/)\.beads(?:\/|$)/,
@@ -62,10 +69,12 @@ function assertArtifactInventory(metadata) {
     /^plans(?:\/|$)/,
     /^tests(?:\/|$)/,
     /^ReferenceRepos(?:\/|$)/,
+    /^src\/m0-.*\.mjs$/,
   ]
   for (const path of paths) {
     if (path.length === 0 || path.startsWith('/') || /^[A-Za-z]:/.test(path)) fail(`invalid packed artifact path: ${path}`)
     if (forbidden.some((pattern) => pattern.test(path))) fail(`forbidden packed artifact path: ${path}`)
+    if (path.startsWith('src/') && !runtimeSource.has(path)) fail(`redundant source entered packed artifact: ${path}`)
   }
   for (const required of [
     'package.json',
@@ -76,8 +85,11 @@ function assertArtifactInventory(metadata) {
     'PRD.md',
     'docs/RUNBOOK.md',
     'docs/RELEASE_EVIDENCE.md',
+    'docs/SECURITY_PRE_REVIEW.md',
     'docs/UPGRADING.md',
+    'docs/PUBLIC_SUBPATHS.md',
     'examples/private-history.ts',
+    'scripts/ops.mjs',
     'scripts/restore-recovery.mjs',
     'src/restore-recovery.mjs',
   ]) {
@@ -185,15 +197,29 @@ function main() {
     const packedPackageJson = JSON.parse(readFileSync(join(packedRoot, 'package.json'), 'utf8'))
     if (packedPackageJson.name !== packageJson.name) fail('packed package name changed')
     if (packedPackageJson.version !== packageJson.version) fail('packed package version changed')
-    if (packedPackageJson.private !== true) fail('package-private boundary changed')
+    if (packedPackageJson.private === true) fail('packed package cannot be published')
+    if (packedPackageJson.publishConfig?.registry !== 'https://npm.pkg.github.com') fail('GitHub Packages registry changed')
+    if (packedPackageJson.bin?.['message-box-store'] !== './scripts/ops.mjs') fail('installed operator CLI is not declared')
+    if (!readFileSync(join(packedRoot, 'scripts', 'ops.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n')) fail('installed operator CLI is not executable')
     assertThirdPartyNotices(packedRoot)
     if (existsSync(join(packedRoot, '.env'))) fail('secret .env was included in package artifact')
     if (!existsSync(join(packedRoot, 'examples', 'private-history.ts'))) fail('private history example was not included in package artifact')
+    mkdirSync(dirname(join(consumerRoot, 'node_modules', packageJson.name)), { recursive: true })
     renameSync(packedRoot, join(consumerRoot, 'node_modules', packageJson.name))
     // npm would install declared runtime dependencies beside the tarball. Link
     // the repository's locked installation to model that state without a
     // registry/network dependency in this verifier.
     const installedDependencies = linkInstalledDependencies(consumerRoot)
+    const cliResult = spawnSync(process.execPath, [join(consumerRoot, 'node_modules', packageJson.name, 'scripts', 'ops.mjs'), 'unsupported'], {
+      cwd: consumerRoot,
+      encoding: 'utf8',
+      env: process.env,
+      windowsHide: true,
+    })
+    if (cliResult.error || cliResult.status !== 1) fail('installed operator CLI did not reject an unsupported command', cliResult)
+    let cliFailure
+    try { cliFailure = JSON.parse(cliResult.stderr.trim()) } catch { fail('installed operator CLI failure was not JSON', cliResult) }
+    if (cliFailure?.code !== 'ERR_INVALID_RECORD') fail('installed operator CLI failure was not typed and redacted', cliResult)
     writeFileSync(join(consumerRoot, 'package.json'), JSON.stringify({
       name: 'message-box-store-clean-consumer',
       private: true,
@@ -205,13 +231,28 @@ function main() {
     const esmScript = join(consumerRoot, 'consumer-esm.mjs')
     writeFileSync(esmScript, `
 import assert from 'node:assert/strict'
-import * as root from 'message-box-store'
-import * as protocol from 'message-box-store/protocol'
-import * as client from 'message-box-store/client'
-import * as canonical from 'message-box-store/canonical'
-import * as server from 'message-box-store/server'
-import * as storage from 'message-box-store/storage'
-assert.match(await import.meta.resolve('message-box-store'), /[\\/]node_modules[\\/]message-box-store[\\/]dist[\\/]mod\\.js$/)
+import * as root from '@jdr377/message-box-store'
+import * as protocol from '@jdr377/message-box-store/protocol'
+import * as client from '@jdr377/message-box-store/client'
+import * as canonical from '@jdr377/message-box-store/canonical'
+import * as server from '@jdr377/message-box-store/server'
+import * as storage from '@jdr377/message-box-store/storage'
+import * as memoryRepository from '@jdr377/message-box-store/repository'
+import * as sqliteRepository from '@jdr377/message-box-store/repository.sqlite'
+import * as mysqlRepository from '@jdr377/message-box-store/repository.mysql'
+import * as snapshots from '@jdr377/message-box-store/snapshots'
+import * as feeds from '@jdr377/message-box-store/feeds'
+import * as migrations from '@jdr377/message-box-store/migrations'
+assert.match(await import.meta.resolve('@jdr377/message-box-store'), /[\\/]node_modules[\\/]@jdr377[\\/]message-box-store[\\/]dist[\\/]mod\\.js$/)
+for (const path of ['repository', 'repository.sqlite', 'repository.mysql', 'snapshots', 'feeds', 'migrations']) {
+  assert.match(await import.meta.resolve('@jdr377/message-box-store/' + path), /[\\/]node_modules[\\/]@jdr377[\\/]message-box-store[\\/]src[\\/].+\\.mjs$/)
+}
+assert.equal(typeof memoryRepository.createMemoryStore, 'function')
+assert.equal(typeof sqliteRepository.createSqliteStore, 'function')
+assert.equal(typeof mysqlRepository.createMysqlStore, 'function')
+assert.equal(typeof snapshots.validateSnapshotFilter, 'function')
+assert.equal(typeof feeds.assembleChangePage, 'function')
+assert.equal(Array.isArray(migrations.MYSQL_MIGRATION_CHAIN), true)
 assert.equal(root.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
 assert.equal(protocol.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
 assert.equal(canonical.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
@@ -251,14 +292,14 @@ assert.equal(typeof storage, 'object')
     const browserScript = join(consumerRoot, 'consumer-browser.mjs')
     writeFileSync(browserScript, `
 import assert from 'node:assert/strict'
-assert.match(await import.meta.resolve('message-box-store'), /[\\/]dist[\\/]mod\\.js$/)
-assert.match(await import.meta.resolve('message-box-store/protocol'), /[\\/]dist[\\/]protocol\\.js$/)
-assert.match(await import.meta.resolve('message-box-store/client'), /[\\/]dist[\\/]client\\.js$/)
-assert.match(await import.meta.resolve('message-box-store/canonical'), /[\\/]dist[\\/]canonical\\.js$/)
-const root = await import('message-box-store')
-const protocol = await import('message-box-store/protocol')
-const client = await import('message-box-store/client')
-const canonical = await import('message-box-store/canonical')
+assert.match(await import.meta.resolve('@jdr377/message-box-store'), /[\\/]dist[\\/]mod\\.js$/)
+assert.match(await import.meta.resolve('@jdr377/message-box-store/protocol'), /[\\/]dist[\\/]protocol\\.js$/)
+assert.match(await import.meta.resolve('@jdr377/message-box-store/client'), /[\\/]dist[\\/]client\\.js$/)
+assert.match(await import.meta.resolve('@jdr377/message-box-store/canonical'), /[\\/]dist[\\/]canonical\\.js$/)
+const root = await import('@jdr377/message-box-store')
+const protocol = await import('@jdr377/message-box-store/protocol')
+const client = await import('@jdr377/message-box-store/client')
+const canonical = await import('@jdr377/message-box-store/canonical')
 assert.equal(root.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
 assert.equal(protocol.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
 assert.equal(canonical.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
@@ -277,10 +318,10 @@ assert.equal(typeof client.MessageBoxArchiveWorker, 'function')
     const cjsScript = join(consumerRoot, 'consumer-cjs.cjs')
     writeFileSync(cjsScript, `
 const assert = require('node:assert/strict')
-const root = require('message-box-store')
-const protocol = require('message-box-store/protocol')
-const client = require('message-box-store/client')
-const canonical = require('message-box-store/canonical')
+const root = require('@jdr377/message-box-store')
+const protocol = require('@jdr377/message-box-store/protocol')
+const client = require('@jdr377/message-box-store/client')
+const canonical = require('@jdr377/message-box-store/canonical')
 assert.equal(root.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
 assert.equal(protocol.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
 assert.equal(canonical.bodyHash('{"encryptedMessage":"AQ=="}'), '${expectedBodyHash}')
@@ -311,11 +352,11 @@ import {
   sendOutboundOnce,
   syncHistory,
   MessageBoxArchiveWorker,
-} from 'message-box-store'
-import type { LocalReplica } from 'message-box-store'
-import type { FreeOnlyMessageBoxClient, OutboundAttemptStore, PreparedEncryptedBody, WalletInterface } from 'message-box-store/client'
-import type { SnapshotCreateResponse } from 'message-box-store/protocol'
-import type { HistoryRepository } from 'message-box-store/storage'
+} from '@jdr377/message-box-store'
+import type { LocalReplica } from '@jdr377/message-box-store'
+import type { FreeOnlyMessageBoxClient, OutboundAttemptStore, PreparedEncryptedBody, WalletInterface } from '@jdr377/message-box-store/client'
+import type { SnapshotCreateResponse } from '@jdr377/message-box-store/protocol'
+import type { HistoryRepository } from '@jdr377/message-box-store/storage'
 const hash: string = bodyHash('{"encryptedMessage":"AQ=="}')
 const key: string = canonicalRecordKey({ ownerIdentityKey: '${expectedOwner}', direction: 'outbound', messageBox: 'general_inbox', sender: '${expectedOwner}', recipient: '${expectedPeer}', messageId: 'types-vector' })
 const snapshot: SnapshotCreateResponse = { snapshotId: 's', epoch: 'e', feed: 'snapshot', filterHash: 'f', watermark: '1', memberCount: 0, status: 'active' }

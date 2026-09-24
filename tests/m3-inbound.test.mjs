@@ -117,6 +117,101 @@ test('M3.2 defaults to no ack and archives the exact inner ciphertext before an 
   assert.equal(message.first.state.records.size, 0)
 })
 
+test('M3.2 history capability outage leaves the message pending until archive-before-ack recovery', async (t) => {
+  const message = await messageHarness(t)
+  const owner = await identityOf(message.recipient)
+  const history = await historyHarness(t, message.recipient)
+  const fixture = await encryptedFixture(owner, 'm3-capability-outage')
+  message.first.seedMessage(fixture.row)
+
+  let historyAvailable = false
+  const events = []
+  const messageBoxClient = {
+    host: message.client.host,
+    trustedHosts: message.client.trustedHosts,
+    getIdentityKey: () => message.client.getIdentityKey(),
+    listRawPage: async (input) => {
+      events.push('list')
+      return await message.client.listRawPage(input)
+    },
+    acknowledgeMessage: async (input) => {
+      events.push('acknowledge')
+      return await message.client.acknowledgeMessage(input)
+    },
+  }
+  const historyClient = {
+    capabilities: async (features) => {
+      if (!historyAvailable) throw new Error('history unavailable')
+      return await history.client.capabilities(features)
+    },
+    archiveBatch: async (request) => {
+      const result = await history.client.archiveBatch(request)
+      events.push('archive committed')
+      return result
+    },
+  }
+  const options = { messageBoxClient, historyClient, messageBoxes: [BOX], acknowledgeAfterArchive: true }
+
+  await assert.rejects(syncPending(options), /history unavailable/)
+  assert.deepEqual(events, [], 'history readiness is checked before Message Box polling')
+  assert.equal(message.first.state.records.size, 1)
+  assert.equal(message.first.state.acknowledgements.length, 0)
+  assert.equal((await history.client.list()).records.length, 0)
+
+  historyAvailable = true
+  const recovered = await syncPending(options)
+  assert.equal(recovered.archived, 1)
+  assert.equal(recovered.acknowledged, 1)
+  assert.deepEqual(events.slice(0, 3), ['list', 'archive committed', 'acknowledge'])
+  assert.deepEqual((await history.client.list()).records.map((record) => record.messageId), [fixture.row.messageId])
+  assert.equal(message.first.state.records.size, 0)
+
+  const again = await syncPending(options)
+  assert.equal(again.messagesRead, 0)
+  assert.equal(again.acknowledged, 0)
+  assert.equal((await history.client.usage()).recordCount, 1)
+  assert.equal(events.filter((event) => event === 'archive committed').length, 1)
+  assert.equal(events.filter((event) => event === 'acknowledge').length, 1)
+})
+
+test('M3.2 accepts Message Box pages that omit the optional nextOffset field', async (t) => {
+  const message = await messageHarness(t)
+  const owner = await identityOf(message.recipient)
+  const history = await historyHarness(t, message.recipient)
+  const fixture = await encryptedFixture(owner, 'm3-no-next-offset')
+  message.first.seedMessage(fixture.row)
+  const client = {
+    host: message.client.host,
+    trustedHosts: message.client.trustedHosts,
+    getIdentityKey: () => message.client.getIdentityKey(),
+    acknowledgeMessage: (input) => message.client.acknowledgeMessage(input),
+    async listRawPage(input) {
+      const { nextOffset, ...page } = await message.client.listRawPage(input)
+      return page
+    },
+  }
+  const first = await syncPending({
+    messageBoxClient: client,
+    historyClient: history.client,
+    messageBoxes: [BOX],
+    acknowledgeAfterArchive: true,
+    maxPages: 3,
+    maxMessages: 3,
+  })
+  assert.equal(first.incomplete, false)
+  assert.equal(first.acknowledged, 1)
+  assert.equal((await history.client.list()).records.length, 1)
+  const empty = await syncPending({
+    messageBoxClient: client,
+    historyClient: history.client,
+    messageBoxes: [BOX],
+    maxPages: 2,
+    maxMessages: 1,
+  })
+  assert.equal(empty.incomplete, false)
+  assert.equal(empty.outcomes.length, 0)
+})
+
 test('M3.2 drains from offset zero after ack and dedupes archival while acknowledging each source host', async (t) => {
   const message = await messageHarness(t, { duplicate: true })
   const owner = await identityOf(message.recipient)

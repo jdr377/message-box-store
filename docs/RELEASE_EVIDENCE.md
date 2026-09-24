@@ -2,11 +2,13 @@
 
 Status: partial M4 evidence for `mbs-8g5.5.2`; this is not release approval.
 
-The package remains `private: true`, version `0.0.0`, and `UNLICENSED`. No
-`publishConfig`, immutable release-candidate artifact, registry owner, maintainer
-approval, deployment approval, or publication authority exists. The evidence
-below records executable coverage so those administrative and independent-review
-decisions do not get confused with implementation status.
+The package is prepared as `@jdr377/message-box-store@0.1.0-private.0`
+for `https://npm.pkg.github.com`. The npm `private` flag is absent because it
+blocks any registry publication; this flag does not control GitHub package
+visibility. The package has not been published. Its `UNLICENSED` source license,
+independent security review, release-owner approval, and private visibility
+verification remain open. Do not install it in a consumer until the published
+artifact and access controls have been checked.
 
 ## Functional requirements
 
@@ -54,15 +56,16 @@ The package's own license and the release owner's legal approval remain open.
 
 ## Gates that remain open
 
-- An independent reviewer must assess the threat matrix and accept or resolve
-  findings; executable tests are not an independent security review.
+- The maintainer pre-review in `docs/SECURITY_PRE_REVIEW.md` traces every M0
+  release-security gate. An independent reviewer must validate it and accept or
+  resolve findings; executable tests are not an independent security review.
 - Measured deployment capacity and supported runtime/peer matrices must be
   approved. Current limit and saturation tests prove bounded behavior, not a
   production throughput promise.
 - The changelog and upgrade/compatibility/rollback guidance exist for the private
-  `0.0.0` baseline, and the direct-dependency notice inventory is packaged.
-  Their final versioned release notes, package license, legal notice approval,
-  registry scope, maintainer ownership, and SemVer must be approved and finalized.
+  `0.1.0-private.0` baseline, and the direct-dependency notice inventory is packaged.
+  Package license, legal notice approval, maintainer ownership, and final
+  release notes must be approved and finalized.
 - An immutable release-candidate tarball and digest must be created only after
   the manifest/version/license decisions. Publishing and deployment require
   separate explicit authorization.

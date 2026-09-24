@@ -60,6 +60,16 @@ export function idempotencyConflict(message = 'idempotency key reuse with differ
   throw error
 }
 
+/** Replay results remain authoritative for one day; new keys are rejected at capacity. */
+export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000
+export const MAX_IDEMPOTENCY_ROWS_PER_OWNER = 1024
+
+export function auxiliaryQuotaExceeded(resource) {
+  const error = new RangeError(`${resource} capacity reached`)
+  error.code = 'ERR_QUOTA_EXCEEDED'
+  throw error
+}
+
 export function nextSequenceString(current) {
   return (BigInt(current) + 1n).toString()
 }
@@ -149,6 +159,47 @@ export function validateArchiveInput({ owner, epoch, record, ownerEpoch }) {
     return { valid: false, code: 'ERR_INVALID_RECORD', reason: 'deliveryState must be prepared or received on archive' }
   }
   return { valid: true, ...recomputed, bodyBytes }
+}
+
+export function validateArchiveBatchBounds(records, limits = LIMITS) {
+  if (!Array.isArray(records) || records.length === 0) {
+    const error = new TypeError('records must be a non-empty array')
+    error.code = 'ERR_INVALID_RECORD'
+    throw error
+  }
+  if (records.length > limits.MAX_BATCH_RECORDS ||
+      records.reduce((bytes, record) => bytes + (typeof record?.body === 'string' ? utf8ByteLength(record.body) : 0), 0) > limits.MAX_BATCH_BYTES) {
+    const error = new RangeError('batch exceeds bound')
+    error.code = 'ERR_REQUEST_TOO_LARGE'
+    throw error
+  }
+}
+
+export function archiveEpochChanged(records, epoch) {
+  return {
+    epoch,
+    committed: false,
+    outcomes: records.map((record, index) => ({ index, recordKey: record?.recordKey ?? null, outcome: 'epochChanged', errorCode: 'ERR_EPOCH_CHANGED' })),
+  }
+}
+
+export function archiveInvalidOutcome(index, record, check) {
+  return { index, recordKey: record?.recordKey ?? null, outcome: check.code === 'ERR_EPOCH_CHANGED' ? 'epochChanged' : 'invalid', errorCode: check.code }
+}
+
+export function archiveExistingOutcome(index, record, check, existing) {
+  return sameImmutableRecord(existing, { ...record, bodyHash: check.bodyHash })
+    ? { index, recordKey: check.recordKey, outcome: 'alreadyPresent', bodyHash: check.bodyHash }
+    : { index, recordKey: check.recordKey, outcome: 'conflict', errorCode: 'ERR_IMMUTABLE_CONFLICT' }
+}
+
+export function archiveAdmissionOutcome(index, record, check, projected, limits = LIMITS) {
+  if (projected.count + 1 > limits.MAX_RECORDS_PER_OWNER || projected.bytes + check.bodyBytes > limits.MAX_BYTES_PER_OWNER) {
+    return { index, recordKey: check.recordKey, outcome: 'quotaExceeded', errorCode: 'ERR_QUOTA_EXCEEDED' }
+  }
+  projected.count += 1
+  projected.bytes += check.bodyBytes
+  return { index, recordKey: check.recordKey, outcome: 'stored', bodyHash: check.bodyHash, bodyBytes: check.bodyBytes, validated: { ...record } }
 }
 
 export function sameImmutableRecord(left, right) {

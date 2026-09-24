@@ -455,6 +455,26 @@ separately. Response-byte limits
 include JSON overhead: every allowed record must fit a page or yield a typed
 error, never an empty continuation loop.
 
+Auxiliary storage has separate physical admission limits. Each owner may hold
+at most 32 snapshot anchors and 40,000 materialized membership rows, counting
+expired or invalidated rows until they are physically purged. A new snapshot
+that exceeds either limit fails atomically with `ERR_QUOTA_EXCEEDED` (HTTP 409);
+an existing snapshot and its cursor remain valid until their ordinary expiry or
+invalidation. The default cleanup interval is five minutes and each pass can
+remove at most 5,000 snapshot items: at the per-owner membership limit, eight
+successful passes drain those items when no other owners compete for the global
+cleanup budget. Operators who lengthen the interval or share the budget across
+many owners must provision cleanup throughput accordingly.
+
+Idempotency results are retained for 24 hours from creation, up to 1,024 rows
+per owner. Exact replays within that window return the original result even
+when capacity is full. New keys at capacity fail before the mutation with
+`ERR_QUOTA_EXCEEDED` (HTTP 409). Expired rows are deleted on the next keyed
+mutation; after expiry the same key is a new request and must meet current CAS
+and epoch checks. Immutable-conflict forensic events retain the newest 200
+rows per owner on all adapters. Physical storage metrics include idempotency
+and audit row counts as well as snapshot anchors and members.
+
 Concurrent devices can upload the same record in any order. A device that has
 only a partial local history fills older pages using the cursor; it does not
 use timestamps alone, because equal timestamps and clock skew can skip rows.

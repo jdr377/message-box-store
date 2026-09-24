@@ -2,10 +2,9 @@
 
 All notable changes to `message-box-store` will be recorded here.
 
-The package is still private, `UNLICENSED`, and versioned `0.0.0`. The
-`Unreleased` section is implementation history, not a public release or a
-promise of compatibility. A release owner must assign the first supported
-SemVer version and approve its exact contents before publication.
+The first proposed private GitHub Packages artifact is
+`@jdr377/message-box-store@0.1.0-private.0`. It remains `UNLICENSED` and
+unpublished. This is evaluation versioning, not public release approval.
 
 ## Unreleased
 

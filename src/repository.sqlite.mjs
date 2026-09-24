@@ -9,13 +9,14 @@ import {
   validateEpoch,
   validateMessageBox,
   validateMessageId,
-  utf8ByteLength,
 } from './protocol.mjs'
 import { verifyMigrationChecksums, verifySqliteSchema, verifySqliteVersion } from './migrations.mjs'
 import {
   assertSnapshotBinding,
   boundPurgeParams,
   generateSnapshotId,
+  MAX_SNAPSHOT_ITEMS_PER_OWNER,
+  MAX_SNAPSHOTS_PER_OWNER,
   matchesSnapshotFilter,
   snapshotExpiryIso,
   snapshotFilterHash,
@@ -25,29 +26,36 @@ import {
   validateSnapshotFilter,
 } from './snapshots.mjs'
 import {
+  archiveAdmissionOutcome,
+  archiveEpochChanged,
+  archiveExistingOutcome,
+  archiveInvalidOutcome,
   canonicalParamsHash,
+  auxiliaryQuotaExceeded,
   createOwnerLocks,
+  IDEMPOTENCY_TTL_MS,
+  MAX_IDEMPOTENCY_ROWS_PER_OWNER,
   idempotencyConflict,
   nextSequenceString,
   rotateOwnerEpoch,
   sameImmutableRecord,
   validateArchiveInput,
+  validateArchiveBatchBounds,
   validateIdempotencyInput,
   validateStateMutationInput,
 } from './repository-contract.mjs'
 import {
   assertNoInternalRetentionGap,
-  assertNoRetentionGap,
+  assertRetainedChanges,
   assembleChangePage,
   assembleSnapshotPage,
   boundFeedLimit,
   decodeSnapshotPosition,
   matchesFeedFilter,
+  prepareChangesRead,
   retentionCutoffIso,
-  validateChangesPosition,
   validateFeedOwner,
   validateServerSecret,
-  verifyChangesCursor,
   verifySnapshotCursor,
   FEED_START,
 } from './feeds.mjs'
@@ -155,9 +163,15 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
   function checkIdempotencyLocked({ owner, key, operation, params }) {
     if (key === undefined) return null
     validateIdempotencyInput(key)
+    const cutoff = new Date(Date.parse(nowIso(now)) - IDEMPOTENCY_TTL_MS).toISOString().slice(0, 19).replace('T', ' ')
+    db.prepare(`DELETE FROM history_idempotency WHERE owner_identity_key = ? AND created_at <= ?`).run(owner, cutoff)
     const paramsHash = canonicalParamsHash(params)
     const existing = db.prepare(`SELECT operation, params_hash, result_json FROM history_idempotency WHERE owner_identity_key = ? AND idempotency_key = ?`).get(owner, key)
-    if (!existing) return { paramsHash, existing: null }
+    if (!existing) {
+      const count = db.prepare(`SELECT COUNT(*) AS n FROM history_idempotency WHERE owner_identity_key = ?`).get(owner).n
+      if (count >= MAX_IDEMPOTENCY_ROWS_PER_OWNER) auxiliaryQuotaExceeded('idempotency')
+      return { paramsHash, existing: null }
+    }
     if (existing.operation !== operation || existing.params_hash !== paramsHash) {
       idempotencyConflict()
     }
@@ -214,48 +228,22 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
 
   async function archiveBatch({ owner, epoch, records }) {
     return withOwnerLock(owner, async () => {
-      if (!Array.isArray(records) || records.length === 0) {
-        const e = new TypeError('records must be a non-empty array')
-        e.code = 'ERR_INVALID_RECORD'
-        throw e
-      }
-      if (records.length > L.MAX_BATCH_RECORDS) {
-        const e = new RangeError('batch exceeds record bound')
-        e.code = 'ERR_REQUEST_TOO_LARGE'
-        throw e
-      }
-      let batchBytes = 0
-      for (const r of records) batchBytes += typeof r?.body === 'string' ? utf8ByteLength(r.body) : 0
-      if (batchBytes > L.MAX_BATCH_BYTES) {
-        const e = new RangeError('batch exceeds byte bound')
-        e.code = 'ERR_REQUEST_TOO_LARGE'
-        throw e
-      }
+      validateArchiveBatchBounds(records, L)
       db.exec('BEGIN IMMEDIATE')
       try {
         ensureOwner(owner)
         const st = readOwnerLocked(owner)
         if (epoch !== st.epoch) {
           db.exec('ROLLBACK')
-          return {
-            epoch: st.epoch,
-            committed: false,
-            outcomes: records.map((r, index) => ({ index, recordKey: r?.recordKey ?? null, outcome: 'epochChanged', errorCode: 'ERR_EPOCH_CHANGED' })),
-          }
+          return archiveEpochChanged(records, st.epoch)
         }
-        let projectedCount = st.recordCount
-        let projectedBytes = st.byteCount
+        const projected = { count: st.recordCount, bytes: st.byteCount }
         const planned = []
         for (let index = 0; index < records.length; index += 1) {
           const record = records[index]
           const check = validateArchiveInput({ owner, epoch, record, ownerEpoch: st.epoch })
           if (!check.valid) {
-            planned.push({
-              index,
-              recordKey: record?.recordKey ?? null,
-              outcome: check.code === 'ERR_EPOCH_CHANGED' ? 'epochChanged' : 'invalid',
-              errorCode: check.code,
-            })
+            planned.push(archiveInvalidOutcome(index, record, check))
             continue
           }
           const existing = db.prepare(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`).get(owner, check.recordKey)
@@ -269,12 +257,9 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
               bodyHash: existing.body_hash,
               body: existing.body,
             }
-            if (sameImmutableRecord(left, { ...record, bodyHash: check.bodyHash })) {
-              planned.push({ index, recordKey: check.recordKey, outcome: 'alreadyPresent', bodyHash: check.bodyHash })
-            } else {
-              auditLocked(owner, 'immutable-conflict', check.recordKey, 'same key different content')
-              planned.push({ index, recordKey: check.recordKey, outcome: 'conflict', errorCode: 'ERR_IMMUTABLE_CONFLICT' })
-            }
+            const outcome = archiveExistingOutcome(index, record, check, left)
+            if (outcome.outcome === 'conflict') auditLocked(owner, 'immutable-conflict', check.recordKey, 'same key different content')
+            planned.push(outcome)
             continue
           }
           if (latestChangeKind(owner, check.recordKey) === 'delete') {
@@ -290,13 +275,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
               continue
             }
           }
-          if (projectedCount + 1 > L.MAX_RECORDS_PER_OWNER || projectedBytes + check.bodyBytes > L.MAX_BYTES_PER_OWNER) {
-            planned.push({ index, recordKey: check.recordKey, outcome: 'quotaExceeded', errorCode: 'ERR_QUOTA_EXCEEDED' })
-            continue
-          }
-          projectedCount += 1
-          projectedBytes += check.bodyBytes
-          planned.push({ index, recordKey: check.recordKey, outcome: 'stored', bodyHash: check.bodyHash, bodyBytes: check.bodyBytes, validated: { ...record } })
+          planned.push(archiveAdmissionOutcome(index, record, check, projected, L))
         }
 
         let seq = BigInt(st.nextSequence)
@@ -356,8 +335,8 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
               delete item.validated
               delete item.bodyBytes
               seq -= 1n
-              projectedCount -= 1
-              projectedBytes -= item.bodyBytes ?? 0
+              projected.count -= 1
+              projected.bytes -= item.bodyBytes ?? 0
               continue
             }
             throw error
@@ -369,8 +348,8 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
         }
         db.prepare(`UPDATE history_owner_state SET next_sequence = ?, record_count = ?, byte_count = ? WHERE owner_identity_key = ?`).run(
           seq.toString(),
-          projectedCount,
-          projectedBytes,
+          projected.count,
+          projected.bytes,
           owner,
         )
         if (commitFailureOnce || failOnce.archiveBatch) {
@@ -669,6 +648,8 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
           members.push(record)
         }
         members.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.recordKey < b.recordKey ? -1 : 1))
+        const capacity = db.prepare(`SELECT COUNT(*) AS snapshots, COALESCE(SUM((SELECT COUNT(*) FROM history_snapshot_items i WHERE i.snapshot_id = s.snapshot_id)), 0) AS items FROM history_snapshots s WHERE s.owner_identity_key = ?`).get(owner)
+        if (Number(capacity.snapshots) >= MAX_SNAPSHOTS_PER_OWNER || Number(capacity.items) + members.length > MAX_SNAPSHOT_ITEMS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
         const snapshotId = generateSnapshotId()
         const filterHash = snapshotFilterHash(filter)
         const expiresAt = snapshotExpiryIso()
@@ -908,46 +889,11 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
     const nowSec = nowSeconds ?? Math.floor(Date.now() / 1000)
     const serverTime = nowIsoValue ?? nowIso(now) ?? new Date().toISOString()
     const usage = currentUsage(owner)
-    let W
-    let C
-    let epoch
-    if ((afterSequence === undefined) !== (expectedEpoch === undefined)) {
-      const e = new Error('afterSequence and expectedEpoch must be supplied together')
-      e.code = 'ERR_INVALID_CURSOR'
-      throw e
-    }
-    const explicitCheckpoint = afterSequence !== undefined
-    if (explicitCheckpoint && cursor !== null && cursor !== undefined) {
-      const e = new Error('cursor and checkpoint mode are mutually exclusive')
-      e.code = 'ERR_INVALID_CURSOR'
-      throw e
-    }
-    if (explicitCheckpoint) {
-      validateChangesPosition(afterSequence)
-      if (expectedEpoch !== usage.epoch) {
-        const e = new Error('epoch changed; take a full snapshot')
-        e.code = 'ERR_EPOCH_CHANGED'
-        throw e
-      }
-      W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
-      C = afterSequence
-      epoch = usage.epoch
-      if (BigInt(C) > BigInt(W)) {
-        const e = new Error('checkpoint is beyond the current watermark')
-        e.code = 'ERR_INVALID_CURSOR'
-        throw e
-      }
-    } else if (cursor === null || cursor === undefined) {
-      W = usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString()
-      C = FEED_START
-      epoch = usage.epoch
-    } else {
-      const payload = verifyChangesCursor(cursor, { serverSecret, owner, expectedEpoch: usage.epoch, expectedFilterDigest: filterDigest, nowSeconds: nowSec })
-      W = String(payload.w)
-      C = String(payload.p)
-      epoch = String(payload.epoch)
-      validateChangesPosition(C)
-    }
+    const { W, C, epoch, explicitCheckpoint } = prepareChangesRead({
+      cursor, afterSequence, expectedEpoch, currentEpoch: usage.epoch,
+      watermark: () => usage.nextSequence === '1' ? '0' : (BigInt(usage.nextSequence) - 1n).toString(),
+      serverSecret, owner, filterDigest, nowSeconds: nowSec,
+    })
     const boundary = db.prepare(`SELECT resync_through_sequence FROM history_change_boundaries WHERE owner_identity_key = ?`).get(owner)
     if (boundary && BigInt(C) < BigInt(String(boundary.resync_through_sequence)) && BigInt(W) > BigInt(C)) {
       const e = new Error('legacy history cannot be reconstructed exactly; take a full snapshot')
@@ -955,14 +901,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
       throw e
     }
     const earliest = earliestChangeSequence(owner)
-    if (C !== FEED_START || explicitCheckpoint) {
-      assertNoRetentionGap({ position: C, earliest })
-      if (earliest === null && C !== W) {
-        const e = new Error('cursor outside retained history; take a full snapshot')
-        e.code = 'ERR_CURSOR_EXPIRED'
-        throw e
-      }
-    }
+    assertRetainedChanges({ position: C, watermark: W, earliest, explicitCheckpoint })
     const ordered = allChangesOrdered(owner).filter((c) => BigInt(String(c.sequence)) > BigInt(C) && BigInt(String(c.sequence)) <= BigInt(W))
     const scanned = ordered.slice(0, bounded)
     assertNoInternalRetentionGap({ position: C, watermark: W, sequences: scanned.map((c) => String(c.sequence)), bounded, explicitCheckpoint })
@@ -1143,9 +1082,11 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
     const itemRow = db.prepare(`SELECT COUNT(*) AS n FROM history_snapshot_items WHERE snapshot_id IN (SELECT snapshot_id FROM history_snapshots WHERE owner_identity_key = ?)`).get(owner)
     const tombstoneCount = Number(db.prepare(`SELECT COUNT(*) AS n FROM history_tombstones WHERE owner_identity_key = ?`).get(owner).n)
     const changeDetailCount = Number(db.prepare(`SELECT COUNT(*) AS n FROM history_change_details WHERE owner_identity_key = ?`).get(owner).n)
+    const idempotencyCount = Number(db.prepare(`SELECT COUNT(*) AS n FROM history_idempotency WHERE owner_identity_key = ?`).get(owner).n)
+    const auditEventCount = Number(db.prepare(`SELECT COUNT(*) AS n FROM history_audit_events WHERE owner_identity_key = ?`).get(owner).n)
     return {
       live: { recordCount: usage.recordCount, byteCount: usage.byteCount, epoch: usage.epoch, nextSequence: usage.nextSequence },
-      physical: { changeCount, changeDetailCount, tombstoneCount, snapshotCount, snapshotItemCount: Number(itemRow.n) },
+      physical: { changeCount, changeDetailCount, tombstoneCount, snapshotCount, snapshotItemCount: Number(itemRow.n), idempotencyCount, auditEventCount },
     }
   }
 

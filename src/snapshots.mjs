@@ -11,9 +11,12 @@ import { isIdentityKey, sha256Hex, validateDirection, validateMessageBox } from 
 export const SNAPSHOT_STATUS = Object.freeze({ ACTIVE: 'active', INVALIDATED: 'invalidated' })
 /** Snapshots are short-lived capture aids, not retention: 1 hour. */
 export const SNAPSHOT_TTL_SECONDS = 3600
+/** Physical per-owner admission limits, including expired rows awaiting purge. */
+export const MAX_SNAPSHOTS_PER_OWNER = 32
+export const MAX_SNAPSHOT_ITEMS_PER_OWNER = 40000
 export const SNAPSHOT_PURGE_BATCH = 500
 /** Total work bound per purge invocation (mbs-8g5.2.3.3.1). */
-export const SNAPSHOT_PURGE_MAX_ITEMS_PER_CALL = 1000
+export const SNAPSHOT_PURGE_MAX_ITEMS_PER_CALL = 5000
 export const SNAPSHOT_PURGE_MAX_SNAPSHOTS_PER_CALL = 100
 export const SNAPSHOT_VERSION = '002-snapshot-foundation'
 /** Snapshot feed binding: all foundation snapshots serve the snapshot feed. No .2.4 cursor/feed behavior. */

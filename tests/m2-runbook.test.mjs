@@ -30,6 +30,7 @@ function runOps(args, env = {}) {
 }
 
 test('M2.2b.4 package scripts expose start, migrate, and config:check via scripts/ops.mjs', () => {
+  assert.deepEqual(packageJson.bin, { 'message-box-store': './scripts/ops.mjs' })
   assert.equal(packageJson.scripts?.start, 'node scripts/ops.mjs start')
   assert.equal(packageJson.scripts?.migrate, 'node scripts/ops.mjs migrate')
   assert.equal(packageJson.scripts?.['config:check'], 'node scripts/ops.mjs check-config')

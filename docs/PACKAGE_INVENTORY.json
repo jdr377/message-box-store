@@ -1,0 +1,610 @@
+{
+  "baseline": {
+    "entries": 100,
+    "compressedBytes": 403541,
+    "unpackedBytes": 1598219
+  },
+  "method": "npm pack --dry-run --json --ignore-scripts with a disposable local npm cache; bytes are per-file unpacked bytes",
+  "entries": [
+    {
+      "path": "ADR-001-durable-history.md",
+      "bytes": 47767,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 2527,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "PRD.md",
+      "bytes": 45504,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "README.md",
+      "bytes": 19229,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "THIRD_PARTY_NOTICES.md",
+      "bytes": 8206,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical-BdeWTI3M.d.cts",
+      "bytes": 2926,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical-D6gV2BVz.js",
+      "bytes": 14649,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical-DGHx0ceL.cjs",
+      "bytes": 16879,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical-IcDud-IE.d.ts",
+      "bytes": 2926,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical-runtime-C-gc75VY.cjs",
+      "bytes": 0,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical-runtime-Cgqoi8HJ.js",
+      "bytes": 0,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical.cjs",
+      "bytes": 1375,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical.d.cts",
+      "bytes": 992,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical.d.ts",
+      "bytes": 991,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/canonical.js",
+      "bytes": 900,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client-CAif5Oi3.cjs",
+      "bytes": 65833,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client-CeL77Vcc.d.cts",
+      "bytes": 16606,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client-CWT0CJ9i.d.ts",
+      "bytes": 16605,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client-tyU4Jvji.js",
+      "bytes": 63305,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client.cjs",
+      "bytes": 1801,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client.d.cts",
+      "bytes": 3360,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client.d.ts",
+      "bytes": 3358,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/client.js",
+      "bytes": 1324,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/migrations-BLSLd-n9.js",
+      "bytes": 42736,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/migrations-sI0YNCmR.cjs",
+      "bytes": 43293,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/mod.cjs",
+      "bytes": 2797,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/mod.d.cts",
+      "bytes": 5056,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/mod.d.ts",
+      "bytes": 5053,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/mod.js",
+      "bytes": 1931,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol-BSMo8V5t.d.cts",
+      "bytes": 5160,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol-CbBwq-hE.js",
+      "bytes": 1006,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol-CoJ_5rX7.d.ts",
+      "bytes": 5160,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol-Cxerxg7f.cjs",
+      "bytes": 1197,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol.cjs",
+      "bytes": 1323,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol.d.cts",
+      "bytes": 1630,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol.d.ts",
+      "bytes": 1628,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/protocol.js",
+      "bytes": 833,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/repository.mysql-BYiSQgbm.js",
+      "bytes": 101288,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/repository.mysql-gLpV1iiK.cjs",
+      "bytes": 102110,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/server.cjs",
+      "bytes": 94113,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/server.d.cts",
+      "bytes": 40746,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/server.d.ts",
+      "bytes": 40744,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/server.js",
+      "bytes": 91213,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/snapshots-B7qn4o-I.js",
+      "bytes": 588,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/snapshots-DeQicNc0.cjs",
+      "bytes": 423,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/storage-b5BMt2sj.d.cts",
+      "bytes": 3570,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/storage-BHfUJvH8.d.ts",
+      "bytes": 3569,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/storage.cjs",
+      "bytes": 120,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/storage.d.cts",
+      "bytes": 468,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/storage.d.ts",
+      "bytes": 467,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "dist/storage.js",
+      "bytes": 106,
+      "reason": "built runtime or declaration entry/chunk",
+      "action": "retain"
+    },
+    {
+      "path": "docs/DATABASE_ADAPTER_DECISION.md",
+      "bytes": 2543,
+      "reason": "internal refactor analysis",
+      "action": "omit"
+    },
+    {
+      "path": "docs/M0-DECISIONS.md",
+      "bytes": 17415,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "docs/M0-INTEROP-EVIDENCE.md",
+      "bytes": 25040,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "docs/M0-THREAT-MODEL.md",
+      "bytes": 12848,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "docs/REFACTOR_LOC_BASELINE.json",
+      "bytes": 6250,
+      "reason": "internal refactor analysis",
+      "action": "omit"
+    },
+    {
+      "path": "docs/REFACTOR_SURVEY.md",
+      "bytes": 9669,
+      "reason": "internal refactor analysis",
+      "action": "omit"
+    },
+    {
+      "path": "docs/RELEASE_EVIDENCE.md",
+      "bytes": 5611,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "docs/RUNBOOK.md",
+      "bytes": 8040,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "docs/SECURITY_PRE_REVIEW.md",
+      "bytes": 6992,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "docs/SISTER_PACKAGE_COMPARISON.md",
+      "bytes": 3821,
+      "reason": "internal refactor analysis",
+      "action": "omit"
+    },
+    {
+      "path": "docs/UPGRADING.md",
+      "bytes": 6354,
+      "reason": "README-linked contract/operator evidence",
+      "action": "retain"
+    },
+    {
+      "path": "examples/private-history.ts",
+      "bytes": 1299,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "mod.ts",
+      "bytes": 3126,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "package.json",
+      "bytes": 3556,
+      "reason": "package export/metadata contract",
+      "action": "retain"
+    },
+    {
+      "path": "scripts/ops.mjs",
+      "bytes": 5928,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "scripts/restore-recovery.mjs",
+      "bytes": 2137,
+      "reason": "published entry, notice, CLI, example or contract document",
+      "action": "retain"
+    },
+    {
+      "path": "src/canonical-runtime.d.ts",
+      "bytes": 1899,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/canonical-runtime.js",
+      "bytes": 210,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/canonical.js",
+      "bytes": 14885,
+      "reason": "transitive runtime dependency of canonical-runtime.js",
+      "action": "retain"
+    },
+    {
+      "path": "src/canonical.ts",
+      "bytes": 1218,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/client.ts",
+      "bytes": 18424,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/envelope-runtime.d.ts",
+      "bytes": 1517,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/envelope-runtime.js",
+      "bytes": 3609,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/feeds.mjs",
+      "bytes": 16309,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/free-only-transport.mjs",
+      "bytes": 17966,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/inbound.ts",
+      "bytes": 11413,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/index.mjs",
+      "bytes": 677,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/m0-authsocket-fixture.mjs",
+      "bytes": 5486,
+      "reason": "test-only M0 fixture",
+      "action": "omit"
+    },
+    {
+      "path": "src/m0-envelope.mjs",
+      "bytes": 288,
+      "reason": "test-only M0 fixture",
+      "action": "omit"
+    },
+    {
+      "path": "src/m0-message-box-fixture.mjs",
+      "bytes": 13748,
+      "reason": "test-only M0 fixture",
+      "action": "omit"
+    },
+    {
+      "path": "src/m0-outbound-http-send.mjs",
+      "bytes": 205,
+      "reason": "test-only M0 fixture",
+      "action": "omit"
+    },
+    {
+      "path": "src/migrations.mjs",
+      "bytes": 39995,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/outbound-runtime.d.ts",
+      "bytes": 2373,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/outbound-runtime.js",
+      "bytes": 8449,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/outbound.ts",
+      "bytes": 4938,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/protocol.mjs",
+      "bytes": 33990,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/protocol.ts",
+      "bytes": 5293,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/replica-store.ts",
+      "bytes": 3263,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/replica.ts",
+      "bytes": 10778,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/repository-contract.mjs",
+      "bytes": 6038,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/repository.mjs",
+      "bytes": 40231,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/repository.mysql.mjs",
+      "bytes": 60428,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/repository.sqlite.mjs",
+      "bytes": 53415,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/restore-recovery.mjs",
+      "bytes": 9153,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/server.ts",
+      "bytes": 5683,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/service.ts",
+      "bytes": 136030,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/snapshots.mjs",
+      "bytes": 6456,
+      "reason": "raw ESM export dependency or recovery CLI dependency",
+      "action": "retain"
+    },
+    {
+      "path": "src/storage.ts",
+      "bytes": 3780,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    },
+    {
+      "path": "src/worker.ts",
+      "bytes": 4052,
+      "reason": "authored source duplicated by dist; no supported raw import requires it",
+      "action": "omit"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import * as root from 'message-box-store'
-import * as client from 'message-box-store/client'
+import * as root from '@jdr377/message-box-store'
+import * as client from '@jdr377/message-box-store/client'
 import * as envelopeCompatibility from '../src/m0-envelope.mjs'
 import * as envelopeRuntime from '../src/envelope-runtime.js'
 import * as outboundCompatibility from '../src/m0-outbound-http-send.mjs'

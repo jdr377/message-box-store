@@ -101,10 +101,10 @@ function createLocalReplica() {
 test('M3 private packed package proves the two-device encrypted-history outcomes', { timeout: 30_000 }, async (t) => {
   const packed = createPackedPackageFixture()
   t.after(() => packed.cleanup())
-  assert.match(packed.require.resolve('message-box-store'), /node_modules[\\/]message-box-store[\\/]dist[\\/]mod\.cjs$/)
-  const root = packed.require('message-box-store')
-  const clientApi = packed.require('message-box-store/client')
-  const serverApi = packed.require('message-box-store/server')
+  assert.match(packed.require.resolve('@jdr377/message-box-store'), /node_modules[\\/]@jdr377[\\/]message-box-store[\\/]dist[\\/]mod\.cjs$/)
+  const root = packed.require('@jdr377/message-box-store')
+  const clientApi = packed.require('@jdr377/message-box-store/client')
+  const serverApi = packed.require('@jdr377/message-box-store/server')
   for (const api of [root, clientApi]) {
     for (const name of ['syncPending', 'sendOutboundOnce', 'syncHistory', 'decryptArchivedBody']) {
       assert.equal(typeof api[name], 'function', `${name} is available from the packed public client surface`)

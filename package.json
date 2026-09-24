@@ -1,9 +1,11 @@
 {
-  "name": "message-box-store",
-  "version": "0.0.0",
-  "private": true,
+  "name": "@jdr377/message-box-store",
+  "version": "0.1.0-private.0",
   "description": "Application-independent encrypted message history storage for Message Box clients.",
   "type": "module",
+  "bin": {
+    "message-box-store": "./scripts/ops.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/mod.d.ts",
@@ -94,12 +96,28 @@
     "THIRD_PARTY_NOTICES.md",
     "ADR-001-durable-history.md",
     "PRD.md",
-    "mod.ts",
-    "src/*.ts",
-    "src",
+    "src/canonical-runtime.js",
+    "src/canonical.js",
+    "src/protocol.mjs",
+    "src/repository-contract.mjs",
+    "src/repository.mjs",
+    "src/repository.sqlite.mjs",
+    "src/repository.mysql.mjs",
+    "src/snapshots.mjs",
+    "src/feeds.mjs",
+    "src/migrations.mjs",
+    "src/restore-recovery.mjs",
+    "scripts/ops.mjs",
     "scripts/restore-recovery.mjs",
     "dist",
-    "docs",
+    "docs/M0-DECISIONS.md",
+    "docs/M0-INTEROP-EVIDENCE.md",
+    "docs/M0-THREAT-MODEL.md",
+    "docs/PUBLIC_SUBPATHS.md",
+    "docs/RELEASE_EVIDENCE.md",
+    "docs/RUNBOOK.md",
+    "docs/SECURITY_PRE_REVIEW.md",
+    "docs/UPGRADING.md",
     "examples"
   ],
   "license": "UNLICENSED",
@@ -112,5 +130,12 @@
     "mysql2": "^3.11.0",
     "tsdown": "0.18.0",
     "typescript": "5.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jdr377/message-box-store.git"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
   }
 }
