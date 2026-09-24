@@ -8,7 +8,8 @@ test('M1 package targets GitHub Packages', () => {
   assert.notEqual(pkg.private, true)
   assert.equal(pkg.name, '@jdr377/message-box-store')
   assert.equal(pkg.type, 'module')
-  assert.ok(pkg.license === 'UNLICENSED' || pkg.private === true)
+  assert.equal(pkg.license, 'SEE LICENSE IN LICENSE.txt')
+  assert.ok(existsSync(new URL('../LICENSE.txt', import.meta.url)))
   assert.equal(pkg.publishConfig?.registry, 'https://npm.pkg.github.com')
 })
 

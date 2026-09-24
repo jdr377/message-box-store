@@ -79,6 +79,7 @@ function assertArtifactInventory(metadata) {
   for (const required of [
     'package.json',
     'README.md',
+    'LICENSE.txt',
     'CHANGELOG.md',
     'THIRD_PARTY_NOTICES.md',
     'ADR-001-durable-history.md',
@@ -198,6 +199,11 @@ function main() {
     if (packedPackageJson.name !== packageJson.name) fail('packed package name changed')
     if (packedPackageJson.version !== packageJson.version) fail('packed package version changed')
     if (packedPackageJson.private === true) fail('packed package cannot be published')
+    if (packedPackageJson.license !== 'SEE LICENSE IN LICENSE.txt') fail('packed package license changed')
+    const ownLicense = readFileSync(join(packedRoot, 'LICENSE.txt'), 'utf8')
+    if (!ownLicense.startsWith('Open BSV License Version 6 – granted by jdr377 ("Licensor")')) fail('packed license grantor changed')
+    if (!ownLicense.includes('1 - The text "© jdr377"')) fail('packed license notice changed')
+    if (!ownLicense.includes('may only be used exclusively on the BSV Blockchain.')) fail('packed license BSV-only condition changed')
     if (packedPackageJson.publishConfig?.registry !== 'https://npm.pkg.github.com') fail('GitHub Packages registry changed')
     if (packedPackageJson.bin?.['message-box-store'] !== './scripts/ops.mjs') fail('installed operator CLI is not declared')
     if (!readFileSync(join(packedRoot, 'scripts', 'ops.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n')) fail('installed operator CLI is not executable')

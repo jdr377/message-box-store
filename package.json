@@ -92,6 +92,7 @@
   },
   "files": [
     "README.md",
+    "LICENSE.txt",
     "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md",
     "ADR-001-durable-history.md",
@@ -120,7 +121,7 @@
     "docs/UPGRADING.md",
     "examples"
   ],
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
     "@bsv/authsocket": "2.1.7",
     "ajv": "^8.20.0",

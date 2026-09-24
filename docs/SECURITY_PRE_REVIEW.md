@@ -13,7 +13,8 @@ tests, and package documentation. It also searched production sources for
 dynamic code execution, command execution, interpolated SQL, wallet/payment
 entry points, request-body/header logging, and embedded credentials.
 
-The package remains private, `0.0.0`, and `UNLICENSED`. Review of source and
+At the time of this pre-review, the package was private, `0.0.0`, and
+`UNLICENSED`. Review of source and
 tests does not authorize risk acceptance, a registry release, or deployment.
 
 ## Threat-gate trace

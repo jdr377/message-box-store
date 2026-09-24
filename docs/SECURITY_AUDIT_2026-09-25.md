@@ -141,7 +141,7 @@ conflicts, and include audit rows in physical usage reporting.
 F1 and F2 are release-blocking for a publicly available multi-tenant service
 under the package's own finite-capacity contract. F3 is a contract discrepancy
 and should be resolved or explicitly accepted before release. The package is
-currently private (`0.0.0`, `UNLICENSED`); this report is not evidence of an
+at audit time private (`0.0.0`, `UNLICENSED`); this report is not evidence of an
 incident in a deployed service. Dedicated Beads track fixes. After behavior
 changes, run the complete MySQL-enabled suite against verified disposable test
 databases with zero skips, plus typecheck, lint, build, and pack verification.

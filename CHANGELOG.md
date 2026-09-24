@@ -3,8 +3,9 @@
 All notable changes to `message-box-store` will be recorded here.
 
 The first proposed private GitHub Packages artifact is
-`@jdr377/message-box-store@0.1.0-private.0`. It remains `UNLICENSED` and
-unpublished. This is evaluation versioning, not public release approval.
+`@jdr377/message-box-store@0.1.0-private.0`. Its original code is under
+Open BSV License Version 6, granted by `jdr377`; it remains unpublished.
+This is evaluation versioning, not public release approval.
 
 ## Unreleased
 
@@ -45,6 +46,6 @@ unpublished. This is evaluation versioning, not public release approval.
 ### Release status
 
 - No immutable release candidate has been approved or produced.
-- Package name/scope, SemVer, license, third-party notices, registry ownership,
-  supported runtime matrix, security acceptance, publication, and deployment
-  remain separate release-owner decisions.
+- Package scope and evaluation version are selected. Third-party notice review,
+  supported runtime matrix, independent security acceptance, publication, and
+  deployment remain separate release-owner decisions.

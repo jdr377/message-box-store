@@ -93,6 +93,7 @@ See [release evidence](docs/RELEASE_EVIDENCE.md),
 
 ## License
 
-This package remains `UNLICENSED` pending review by the copyright holder.
-The licenses and required notices for its dependencies are recorded in
+The original package code is licensed under [Open BSV License Version 6](LICENSE.txt)
+by jdr377 for use on the BSV blockchain. Dependencies retain their own
+licenses and copyright notices in
 [third-party notices](THIRD_PARTY_NOTICES.md).

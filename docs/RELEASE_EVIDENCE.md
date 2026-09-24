@@ -5,10 +5,11 @@ Status: partial M4 evidence for `mbs-8g5.5.2`; this is not release approval.
 The package is prepared as `@jdr377/message-box-store@0.1.0-private.0`
 for `https://npm.pkg.github.com`. The npm `private` flag is absent because it
 blocks any registry publication; this flag does not control GitHub package
-visibility. The package has not been published. Its `UNLICENSED` source license,
-independent security review, release-owner approval, and private visibility
-verification remain open. Do not install it in a consumer until the published
-artifact and access controls have been checked.
+visibility. The package has not been published. Its original code is under
+`LICENSE.txt` (Open BSV License Version 6, granted by jdr377). Independent
+security review, legal/notice review, release-owner approval, and private
+visibility verification remain open. Do not install it in a consumer until
+the published artifact and access controls have been checked.
 
 ## Functional requirements
 
@@ -52,7 +53,8 @@ The currently installed direct dependency/license inventory is:
 
 This inventory is evidence, not legal approval. The three BSV dependency license
 texts and the MIT dependency notices are reproduced in `THIRD_PARTY_NOTICES.md`.
-The package's own license and the release owner's legal approval remain open.
+The package's own BSV-only license is in `LICENSE.txt`; legal/notice review
+remains open.
 
 ## Gates that remain open
 
@@ -64,8 +66,8 @@ The package's own license and the release owner's legal approval remain open.
   production throughput promise.
 - The changelog and upgrade/compatibility/rollback guidance exist for the private
   `0.1.0-private.0` baseline, and the direct-dependency notice inventory is packaged.
-  Package license, legal notice approval, maintainer ownership, and final
-  release notes must be approved and finalized.
+  Legal notice review, maintainer ownership, and final release notes must be
+  approved and finalized.
 - An immutable release-candidate tarball and digest must be created only after
-  the manifest/version/license decisions. Publishing and deployment require
+  the manifest and notice review decisions. Publishing and deployment require
   separate explicit authorization.

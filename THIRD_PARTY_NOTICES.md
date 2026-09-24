@@ -2,8 +2,8 @@
 
 This inventory was generated from the installed packages used by the private
 `0.1.0-private.0` candidate. It records supplied license material; it is not legal advice,
-approval to publish, or a license selection for `message-box-store`, which
-remains `UNLICENSED`.
+approval to publish, or a replacement for the package’s own license in
+`LICENSE.txt`.
 
 ## Direct dependency inventory
 
