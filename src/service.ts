@@ -517,7 +517,7 @@ function resolveRateLimitIpKey(
 const rawJsonBodies = new WeakMap<object, Buffer>()
 
 /**
- * Pinned upstream replay semantics (@bsv/auth-express-middleware 2.2.3 over
+ * Original replay-window rationale (@bsv/auth-express-middleware 2.2.3 over
  * @bsv/sdk 2.7.1 AuthFetch/Peer/SimplifiedFetchTransport): the BRC-104
  * request-id is a 32-byte base64 correlation value signed over
  * method/path/query/headers/body inside a mutual session. The middleware
@@ -525,7 +525,8 @@ const rawJsonBodies = new WeakMap<object, Buffer>()
  * duplicate request-ids (active general handles) plus handshake ids while
  * pending. Completed general request-ids are NOT retained as single-use
  * tokens, so an exact replay while the session lives verifies successfully
- * upstream. The default SessionManager is process-local with no TTL.
+ * upstream. SDK 3.2.1 now atomically claims session message nonces and rejects
+ * completed-request replay before this supplementary application guard.
  */
 export interface ReplayGuardOptions {
   /** Window size. Defaults to REPLAY_CACHE_LIMIT. */

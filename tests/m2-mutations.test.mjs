@@ -714,5 +714,6 @@ test('M2.1c replayed signed mutation requests fail closed', async (t) => {
   assert.ok(signed, 'captured the signed archive request')
   const replay = await plainJson(signed.url, { method: 'POST', headers: { ...signed.headers }, body: signed.body })
   assert.equal(replay.status, 401)
-  assert.equal(replay.body?.code, 'ERR_AUTHENTICATION_REQUIRED')
+  assert.equal(replay.body?.code, 'ERR_AUTH_FAILED')
+  assert.equal(h.calls.filter(call => call.method === 'archiveBatch').length, 1, 'the replay never reaches the repository again')
 })

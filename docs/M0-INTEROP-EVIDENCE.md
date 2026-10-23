@@ -1,5 +1,10 @@
 # M0 interoperability evidence
 
+**Historical M0 baseline.** These SDK 2.7.1 / Message Box Client 2.5.1
+observations are retained as original evidence. The current beta.1 candidate
+qualifies SDK 3.2.1 / client 2.6.0; redirect and replay behavior is updated in
+[dependency refresh qualification](DEPENDENCY_REFRESH_2026-10-23.md).
+
 Date: 2026-09-20 (Australia/Sydney)
 
 This document records the first M0 interoperability gate for the standalone

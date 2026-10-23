@@ -1,5 +1,4 @@
 import { AuthSocketServer } from '@bsv/authsocket'
-import { PrivateKey, ProtoWallet } from '@bsv/sdk'
 
 import { bodyHash } from './m0-envelope.mjs'
 
@@ -18,7 +17,8 @@ export function attachAuthSocketMessageBox(host, { wallet, behavior = 'accept' }
   if (!host?.server || !host?.state) throw new TypeError('HTTP Message Box fixture is required')
   if (!['accept', 'reject', 'dropAck'].includes(behavior)) throw new TypeError('Unsupported AuthSocket fixture behavior')
 
-  const serverWallet = wallet ?? new ProtoWallet(PrivateKey.fromHex('44'.repeat(32)))
+  // HTTP and WebSocket share one advertised origin and must prove the same identity.
+  const serverWallet = wallet ?? host.wallet
   const socketServer = new AuthSocketServer(host.server, {
     wallet: serverWallet,
     cors: { origin: '*' },

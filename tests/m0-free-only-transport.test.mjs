@@ -72,7 +72,7 @@ test('payment-disabled WalletInterface forwards identity, auth crypto, encryptio
     'verifyHmac',
     'verifySignature',
     'waitForAuthentication',
-  ], 'the facade mirrors all public WalletInterface methods in the pinned SDK 2.7.1 baseline')
+  ], 'the facade mirrors all public WalletInterface methods in the qualified SDK 3.2.1 baseline')
   const senderIdentityKey = (await senderWallet.getPublicKey({ identityKey: true })).publicKey
   const recipientIdentityKey = (await recipientWallet.getPublicKey({ identityKey: true })).publicKey
   const plaintext = Array.from(new TextEncoder().encode('wallet facade remains useful'))
@@ -356,7 +356,9 @@ test('the guarded MessageBoxClient factory keeps one-shot free send and public l
   })
   assert.equal(sent.state, 'accepted')
   assert.equal(host.state.requests.filter((request) => request.route === '/sendMessage').length, 1)
-  assert.equal(host.state.requests.find((request) => request.route === '/sendMessage').payload.message.checkPermissions, false)
+  assert.equal(host.state.requests.find((request) => request.route === '/sendMessage').payload.message.body, body)
+  assert.equal(host.state.requests.filter((request) => request.route === '/permissions/quote').length, 0)
+  assert.equal(sender.calls.createAction, 0)
 
   const rawPage = await recipientClient.listRawPage({ messageBox: MESSAGE_BOX })
   assert.equal(rawPage.messages.length, 1)

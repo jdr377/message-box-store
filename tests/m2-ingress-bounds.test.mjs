@@ -482,7 +482,7 @@ function createHoldGate() {
         headers: held.request.headers,
         body: held.request.body,
       })
-      held.resolve(response)
+      held.resolve(response.clone())
       return response
     },
   }
@@ -492,6 +492,7 @@ test('M2.2a.1 allowed origin carries a genuinely signed archive to a stored outc
   const h = await createFullHarness(t)
   const gate = createHoldGate()
   let pending
+  let released
   try {
     pending = archive(h, [outboundRecord({ messageId: 'm22a1-allowed-1', owner: h.clientId, peer: h.otherId, body: BODY_SENTINEL })])
     pending.catch(() => {})
@@ -508,12 +509,13 @@ test('M2.2a.1 allowed origin carries a genuinely signed archive to a stored outc
     assert.equal(replayedBody.outcomes[0].outcome, 'stored')
     assertRedacted(replayedBody, 'allowed-origin archive')
   } finally {
-    await gate.release().catch(() => {})
+    released = await gate.release().catch(() => null)
   }
-  const released = await pending
-  assert.equal(released.status, 401, 'the released verbatim request-id fails the replay window')
-  assert.equal(released.body?.code, 'ERR_AUTHENTICATION_REQUIRED')
-  assertRedacted(released.body, 'released replay')
+  await assert.rejects(pending, /HTTP 401 Unauthorized/, 'the SDK refuses an unsigned auth rejection')
+  assert.equal(released.status, 401, 'the released verbatim request-id is rejected upstream')
+  const releasedBody = await released.clone().json()
+  assert.equal(releasedBody.code, 'ERR_AUTH_FAILED')
+  assertRedacted(releasedBody, 'released replay')
   assert.equal((await h.store.getUsage({ owner: h.clientId })).recordCount, 1, 'exactly one mutation committed')
 })
 

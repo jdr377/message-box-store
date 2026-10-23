@@ -1,7 +1,7 @@
 # Third-party notices
 
 This inventory was generated from the installed packages used by the private
-`0.1.0-beta.0` candidate. It records supplied license material; it is not legal advice,
+`0.1.1` candidate. It records supplied license material; it is not legal advice,
 approval to publish, or a replacement for the package’s own license in
 `LICENSE.txt`.
 
@@ -9,10 +9,10 @@ approval to publish, or a replacement for the package’s own license in
 
 | Package | Role | Declared range | Inspected version | Declared license | Package source |
 |---|---|---:|---:|---|---|
-| `@bsv/auth-express-middleware` | runtime | `2.2.3` | `2.2.3` | `SEE LICENSE IN LICENSE.txt` | `https://github.com/bsv-blockchain/ts-stack` |
-| `@bsv/message-box-client` | runtime | `2.5.1` | `2.5.1` | `SEE LICENSE IN LICENSE.txt` | `https://github.com/bsv-blockchain/ts-stack` |
-| `@bsv/sdk` | runtime | `2.7.1` | `2.7.1` | `SEE LICENSE IN LICENSE.txt` | `https://github.com/bsv-blockchain/ts-stack` |
-| `express` | runtime | `5.2.1` | `5.2.1` | `MIT` | `https://github.com/expressjs/express` |
+| `@bsv/auth-express-middleware` | runtime | `2.2.9` | `2.2.9` | `SEE LICENSE IN LICENSE.txt` | `https://github.com/bsv-blockchain/ts-stack` |
+| `@bsv/message-box-client` | runtime | `2.6.0` | `2.6.0` | `SEE LICENSE IN LICENSE.txt` | `https://github.com/bsv-blockchain/ts-stack` |
+| `@bsv/sdk` | runtime | `3.2.1` | `3.2.1` | `SEE LICENSE IN LICENSE.txt` | `https://github.com/bsv-blockchain/ts-stack` |
+| `express` | runtime | `5.3.0` | `5.3.0` | `MIT` | `https://github.com/expressjs/express` |
 | `knex` | supported optional peer | `^3.3.0` | `3.3.0` | `MIT` | `https://github.com/knex/knex` |
 | `mysql2` | supported optional peer | `^3.11.0` | `3.24.4` | `MIT` | `https://github.com/sidorares/node-mysql2` |
 
@@ -87,7 +87,7 @@ DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
-## Express 5.2.1 — MIT License
+## Express 5.3.0 — MIT License
 
 Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
 Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>

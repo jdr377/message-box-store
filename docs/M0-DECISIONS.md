@@ -34,12 +34,14 @@ matrix remain M4 release checks. M3 includes a narrower packed Node/browser
 consumer proof for the current private checkpoint.
 
 The reference source baseline is `bdaebe696c18bf0c0b3c50ac9ef73a396d014d1b`
-in `ReferenceRepos/ts-stack`, inspected 2026-09-20. M0's executable client
-target is `@bsv/message-box-client` 2.5.1 with `@bsv/sdk` 2.7.1,
+in `ReferenceRepos/ts-stack`, inspected 2026-09-20. M0's original executable client
+target was `@bsv/message-box-client` 2.5.1 with `@bsv/sdk` 2.7.1,
 `@bsv/auth-express-middleware` 2.2.3, and `@bsv/authsocket` 2.1.7. The sibling
 Message Box Server source manifest is private version 1.1.42 and requires Node
 24.x. These source versions establish conventions and safety baselines; they
-are not claims about the latest published server deployment.
+are not claims about the latest published server deployment. The current
+candidate requalifies Message Box Client 2.6.0, SDK 3.2.1, auth middleware
+2.2.9 and AuthSocket 2.1.9; see the dependency refresh receipt.
 
 ## Supported transport
 
@@ -82,7 +84,7 @@ public constructors and the public `WalletInterface`:
   `localhost`, strict four-part dotted-decimal IPv4 in `127.0.0.0/8`, or IPv6
   `::1`; DNS names with a numeric `127` prefix and alternate numeric encodings
   are rejected.
-- In SDK 2.7.1, a 402 handler calls `createNonce` (which calls wallet
+- In the qualified SDK 3.2.1, a 402 handler calls `createNonce` (which calls wallet
   `createHmac` with `[2, "server hmac"]`), derives a BRC-105 payment key using
   `getPublicKey([2, "3241645161d8"])`, calls `createAction(outputs)`, then
   retries with `x-bsv-payment`. BRC-103 authentication uses the same nonce
@@ -97,20 +99,15 @@ public constructors and the public `WalletInterface`:
   closes the existing-payment-context path that otherwise bypasses new action
   creation. The fresh-session local authenticated 402 tests observe one
   initial request per operation, no payment header or paid retry, no underlying
-  wallet action, and zero payment outputs/satoshis. SDK 2.7.1 `AuthFetch` may
+  wallet action, and zero payment outputs/satoshis. SDK `AuthFetch` may
   perform internal HTTP exchanges during stale BRC-103 session recovery, so
   this is not a one-physical-request guarantee.
 
-Redirect refusal is not proven or claimed. SDK 2.7.1 `AuthFetch` internally
-constructs `SimplifiedFetchTransport` and does not expose the transport's
-public custom-fetch constructor argument. Its default fetch follows redirects.
-V1 accepts this behavior. The package validates the initial configured HTTPS
-origin and route. A configured host already receives the ciphertext and public
-authentication metadata, while the service receives no plaintext, private
-keys, or decryption keys. Strict redirect refusal would require a private-field
-change, SDK fork, or global fetch replacement, which this project prohibits.
-Reconsider strict refusal only when upstream provides a supported hook or a
-reviewed compatible upgrade.
+SDK 3.2.1 refuses redirects on the qualified public AuthFetch discovery and archive paths.
+`tests/dependency-transport.test.mjs` proves that discovery and a signed
+archive request redirected by an unsigned edge send no request to the
+alternate origin. This supersedes the accepted SDK 2.7.1 redirect limitation;
+no global fetch replacement, SDK fork or private-field change is used.
 
 `checkPermissions: false` alone still does not make an arbitrary host
 payment-free. A fee-requiring host is unsupported: its first request reaches

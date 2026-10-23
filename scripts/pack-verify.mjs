@@ -206,7 +206,7 @@ function main() {
     if (!ownLicense.includes('may only be used exclusively on the BSV Blockchain.')) fail('packed license BSV-only condition changed')
     if (packedPackageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') fail('npm registry changed')
     if (packedPackageJson.publishConfig?.access !== 'public') fail('npm public access changed')
-    if (packedPackageJson.publishConfig?.tag !== 'next') fail('npm prerelease tag changed')
+    if (packedPackageJson.publishConfig?.tag !== 'latest') fail('npm release tag changed')
     if (packedPackageJson.bin?.['message-box-store'] !== './scripts/ops.mjs') fail('installed operator CLI is not declared')
     if (!readFileSync(join(packedRoot, 'scripts', 'ops.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n')) fail('installed operator CLI is not executable')
     assertThirdPartyNotices(packedRoot)

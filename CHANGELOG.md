@@ -7,7 +7,22 @@ The first proposed public npm prerelease is
 Open BSV License Version 6, granted by `jdr377`.
 This is evaluation versioning, not production release approval.
 
-## Unreleased
+## 0.1.1 — 23 October 2026
+
+- Update SDK 2.7.1 to 3.2.1, auth middleware 2.2.3 to 2.2.9,
+  Message Box Client 2.5.1 to 2.6.0, Express 5.2.1 to 5.3.0 and
+  test-only AuthSocket 2.1.7 to 2.1.9. No dependency overrides added.
+- Requalify ciphertext, free-only transport, authenticated owner isolation,
+  replay rejection, unknown-send recovery, and packed exports. The updated
+  SDK refuses unsigned edge redirects; the former redirect limitation is
+  superseded for this qualified graph.
+- Test fixtures now share the same HTTP/WebSocket server identity, as required
+  by the new client identity pinning. Local send options are no longer wire fields.
+- No wire/storage schema, migration, key ownership or delivery policy change.
+  Existing epoch, ciphertext and cursors are retained. Live database/deployment
+  qualification and npm publication remain separate steps.
+
+## 0.1.0-beta.0 — original baseline
 
 ### Added
 

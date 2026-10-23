@@ -185,7 +185,7 @@ test('M2.1b replay window rejects verbatim reuse on the probe', async (t) => {
   assert.ok(signed, 'captured the valid signed request')
   const replay = await fetchJson(signed.url, { method: 'GET', headers: { ...signed.headers } })
   assert.equal(replay.status, 401, 'reused request-id fails')
-  assert.equal(replay.body?.code, 'ERR_AUTHENTICATION_REQUIRED')
+  assert.equal(replay.body?.code, 'ERR_AUTH_FAILED')
   assertRedacted(replay.body, 'replay')
 })
 
@@ -200,7 +200,7 @@ test('M2.1b.1 replay window covers every protected path, not the probe only', as
   assert.ok(signed, 'captured the signed unknown-path request')
   const replay = await fetchJson(signed.url, { method: 'GET', headers: { ...signed.headers } })
   assert.equal(replay.status, 401, 'reused request-id fails on a non-probe protected path')
-  assert.equal(replay.body?.code, 'ERR_AUTHENTICATION_REQUIRED')
+  assert.equal(replay.body?.code, 'ERR_AUTH_FAILED')
   assertRedacted(replay.body, 'non-probe replay')
 })
 

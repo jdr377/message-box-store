@@ -308,7 +308,7 @@ test('M0 store policy rejects paid requests before attempt, wallet, or Message B
   assert.equal(paidHost.state.records.size, 0)
 })
 
-test('Upstream characterization only: 2.5.1 positive quote reaches wallet action creation before HTTP send', async (testContext) => {
+test('Upstream characterization only: 2.6.0 positive quote reaches wallet action creation before HTTP send', async (testContext) => {
   const sender = new CountingWallet(SENDER_KEY, { failCreateAction: true })
   const recipient = new CountingWallet(RECIPIENT_KEY)
   const recipientIdentityKey = await identity(recipient)
@@ -324,7 +324,7 @@ test('Upstream characterization only: 2.5.1 positive quote reaches wallet action
     body: prepared.body,
     skipEncryption: true,
     checkPermissions: true,
-  }, paidHost.host), /Permission check failed/)
+  }, paidHost.host), /Message Box permission check failed\./)
 
   assert.equal(sender.calls.createAction, 1)
   assert.equal(paidHost.state.requests.filter((request) => request.route === '/permissions/quote').length, 1)

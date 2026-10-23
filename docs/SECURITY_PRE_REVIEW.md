@@ -1,5 +1,12 @@
 # M4 internal security pre-review
 
+**Historical baseline below.** The 23 October 2026 dependency-refresh candidate
+is `0.1.1` (SDK 3.2.1, auth middleware 2.2.9, Message Box Client
+2.6.0, Express 5.3.0). Current focused evidence and scope are recorded in
+[dependency refresh qualification](DEPENDENCY_REFRESH_2026-10-23.md). The
+old SDK redirect and completed-request replay descriptions are superseded
+for that graph; historical test counts are not new qualification.
+
 Status: maintainer pre-review for `mbs-8g5.5.2`, based on source and executable
 evidence at commit `7d84a74` plus the uncommitted deterministic-runner change.
 This is not the independent security review required for release approval.

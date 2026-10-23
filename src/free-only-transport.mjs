@@ -90,7 +90,7 @@ function paymentDenialCount(wallet) {
  * caller's wallet. BRC-105's payment-specific key derivation and every
  * transaction action are fail-closed with a stable error.
  *
- * The exact AuthFetch 2.7.1 402 path is:
+ * The qualified AuthFetch 3.2.1 402 path is:
  * createNonce(createHmac([2, 'server hmac'])) -> getPublicKey([2,
  * '3241645161d8']) -> createAction(outputs) -> retry with x-bsv-payment.
  * BRC-103's ordinary authentication handshake also uses createNonce and the

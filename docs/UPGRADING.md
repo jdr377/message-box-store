@@ -1,6 +1,6 @@
 # Upgrade, compatibility, and rollback
 
-Status: proposed public prerelease `0.1.0-beta.0` guidance. This document describes the implemented
+Status: `0.1.1` dependency-refresh guidance. This document describes the implemented
 upgrade boundaries; it does not approve a release, deployment, or compatibility
 promise. The release owner must approve the exact artifact and record its digest before publication.
 
@@ -8,15 +8,18 @@ promise. The release owner must approve the exact artifact and record its digest
 
 | Surface | Implemented baseline | Boundary |
 |---|---|---|
-| Package consumer | Node.js 22+, verified on 22.21.1; ESM, CommonJS, browser-conditioned ESM, and TypeScript declarations | Node 24 and broader runtime support remain release gates. |
+| Package consumer | Node.js 22+, candidate verified on 22.23.4; ESM, CommonJS, browser-conditioned ESM, and TypeScript declarations | Node 24 and broader runtime support remain release gates. |
 | Browser graph | Root, `client`, `protocol`, and `canonical` exports | No server, database, Node built-in, or direct public 1Sat service dependency. |
-| Server graph | Express 5.2.1 and pinned BSV authentication/Message Box packages | SDK or transport upgrades require rerunning the free-only and authenticated-HTTP security proofs. |
+| Server graph | Express 5.3.0, SDK 3.2.1, auth middleware 2.2.9, Message Box Client 2.6.0 | SDK or transport upgrades require rerunning the free-only and authenticated-HTTP security proofs. |
 | Production storage | MySQL 8, Knex `^3.3.0`, mysql2 `^3.11.0` | Memory and SQLite adapters are test/parity evidence, not production promises. |
 | Wire/storage contract | Current private v1 protocol, ordered migrations, owner epoch, signed cursors, snapshots, and canonical record keys | Wire or persistence incompatibility requires a major version and explicit migration notes after SemVer begins. |
 | Identity | One authenticated identity key owns one partition | Rotation, partition merge, and key recovery are unsupported. |
 
 Exact pinned dependencies and executable evidence are recorded in
-[Release evidence](RELEASE_EVIDENCE.md). Treat a dependency update as a product
+[Release evidence](RELEASE_EVIDENCE.md). The standalone candidate uses the
+SDK 3 range declared by its current auth and Message Box dependencies. A host
+that overrides SDK resolution must qualify its effective graph separately;
+MapApp SDK 4 qualification is not a general upstream SDK 4 support claim. Treat a dependency update as a product
 change when it can affect authenticated HTTP, payment behavior, ciphertext
 envelopes, canonical identifiers, cursors, or database semantics.
 

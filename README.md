@@ -12,17 +12,17 @@ after its encrypted body is archived.
 
 ## Package status
 
-`0.1.0-beta.0` is a proposed public npm prerelease for evaluation. It is
-not a production availability promise. Node.js 22+ is
+Version `0.1.1` updates the supported SDK, authentication, Message Box Client
+and Express dependencies. Node.js 22+ is
 supported; the standalone service uses MySQL 8 with Knex and mysql2. The
 browser-facing entry points have no server or database imports.
 
 ## Install
 
-After publication to npmjs.com:
+
 
 ```sh
-npm install @jdr377/message-box-store@next
+npm install @jdr377/message-box-store
 ```
 
 See [public package paths](docs/PUBLIC_SUBPATHS.md) for the

@@ -1,6 +1,6 @@
 {
   "name": "@jdr377/message-box-store",
-  "version": "0.1.0-beta.0",
+  "version": "0.1.1",
   "description": "Application-independent encrypted message history storage for Message Box clients.",
   "type": "module",
   "bin": {
@@ -73,10 +73,10 @@
     "config:check": "node scripts/ops.mjs check-config"
   },
   "dependencies": {
-    "@bsv/auth-express-middleware": "2.2.3",
-    "@bsv/message-box-client": "2.5.1",
-    "@bsv/sdk": "2.7.1",
-    "express": "5.2.1"
+    "@bsv/auth-express-middleware": "2.2.9",
+    "@bsv/message-box-client": "2.6.0",
+    "@bsv/sdk": "3.2.1",
+    "express": "5.3.0"
   },
   "peerDependencies": {
     "knex": "^3.3.0",
@@ -116,6 +116,7 @@
     "docs/M0-THREAT-MODEL.md",
     "docs/PUBLIC_SUBPATHS.md",
     "docs/RELEASE_EVIDENCE.md",
+    "docs/DEPENDENCY_REFRESH_2026-10-23.md",
     "docs/RUNBOOK.md",
     "docs/SECURITY_PRE_REVIEW.md",
     "docs/UPGRADING.md",
@@ -123,7 +124,7 @@
   ],
   "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
-    "@bsv/authsocket": "2.1.7",
+    "@bsv/authsocket": "2.1.9",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "dotenv": "^18.0.1",
@@ -139,6 +140,6 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public",
-    "tag": "next"
+    "tag": "latest"
   }
 }

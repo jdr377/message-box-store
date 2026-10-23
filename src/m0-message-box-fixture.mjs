@@ -6,7 +6,7 @@ import { bodyHash } from './m0-envelope.mjs'
 
 /**
  * A small real HTTP Message Box fixture. It uses the public auth middleware
- * and the same route/body shapes used by MessageBoxClient 2.5.1. No client
+ * and the same route/body shapes used by MessageBoxClient 2.6.0. No client
  * fetch method is replaced or intercepted.
  */
 export async function createMessageBoxHost({ wallet, quote = { recipientFee: 0, deliveryFee: 0 } } = {}) {
@@ -189,6 +189,7 @@ export async function createMessageBoxHost({ wallet, quote = { recipientFee: 0, 
     server,
     host,
     identityKey,
+    wallet: deliveryWallet,
     state,
     seedMessage({ messageId, sender, recipient, messageBox, body, createdAt = new Date().toISOString(), updatedAt = createdAt }) {
       state.records.set(`${recipient}\u0000${messageBox}\u0000${messageId}`, {

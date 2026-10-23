@@ -59,7 +59,7 @@ function closeSocketFixtureAfter(testContext, socketHost, ...clients) {
   })
 }
 
-// These direct sendLiveMessage calls characterize the upstream 2.5.1 client
+// These direct sendLiveMessage calls characterize the upstream 2.6.0 client
 // only. The message-box-store outbound policy never accepts or calls this API.
 test('Upstream characterization only: live send and inbound wake-up followed by raw HTTP archival before ack', async (testContext) => {
   const sender = new CountingWallet(SENDER_KEY)
@@ -181,7 +181,7 @@ test('Upstream hazard characterization: AuthSocket fallback carries checkPermiss
     body: prepared.body,
     skipEncryption: true,
     checkPermissions: true,
-  }, httpHost.host), /Permission check failed/)
+  }, httpHost.host), /Message Box permission check failed\./)
 
   assert.equal(sender.calls.encrypt.length, 1, 'the prepared body is not re-encrypted by the live path')
   assert.equal(httpHost.state.socketRequests.length, 1)
@@ -214,7 +214,7 @@ test('Upstream hazard characterization: paid live timeout can reach wallet actio
     body: prepared.body,
     skipEncryption: true,
     checkPermissions: true,
-  }, httpHost.host), /Permission check failed/)
+  }, httpHost.host), /Message Box permission check failed\./)
 
   assert.equal(sender.calls.encrypt.length, 1)
   assert.equal(httpHost.state.socketRequests.length, 1)
@@ -243,13 +243,13 @@ test('Upstream hazard characterization: lost live ack triggers HTTP fallback and
     body: prepared.body,
     skipEncryption: true,
     checkPermissions: false,
-  }, httpHost.host), /HTTP 400/)
+  }, httpHost.host), /Message Box send failed with HTTP 400/)
 
   assert.equal(sender.calls.encrypt.length, 1)
   assert.equal(httpHost.state.socketRequests.length, 1)
   assert.equal(httpHost.state.records.size, 1, 'the live server accepted the message before the ack was lost')
   const fallbacks = httpHost.state.requests.filter((request) => request.route === '/sendMessage')
-  assert.equal(fallbacks.length, 1, 'the 2.5.1 client makes one HTTP fallback after its live ack timeout')
+  assert.equal(fallbacks.length, 1, 'the 2.6.0 client makes one HTTP fallback after its live ack timeout')
   assert.equal(fallbacks[0].payload.message.messageId, messageId)
   assert.equal(fallbacks[0].payload.message.body, prepared.body)
   assert.equal([...httpHost.state.records.values()][0].body, prepared.body)

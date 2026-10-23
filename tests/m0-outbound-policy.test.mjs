@@ -65,8 +65,8 @@ test('M0 HTTP policy exposes an opaque capability and reserves before one applic
   const sentMessage = host.state.requests[0].payload.message
   assert.equal(sentMessage.messageId, MESSAGE_ID)
   assert.equal(sentMessage.body, BODY)
-  assert.equal(sentMessage.skipEncryption, true)
-  assert.equal(sentMessage.checkPermissions, false)
+  assert.deepEqual(Object.keys(sentMessage).sort(), ['body', 'messageBox', 'messageId', 'recipient'])
+  assert.equal(host.state.requests.filter((request) => request.route === '/permissions/quote').length, 0)
 })
 
 test('M0 concurrent/repeated invocation of one record key never sends twice', async (testContext) => {
@@ -234,7 +234,9 @@ test('M0 HTTP capability is opaque and supported sends force checkPermissions fa
   })
   assert.equal(result.state, 'accepted')
   assert.equal(host.state.requests.length, 1)
-  assert.equal(host.state.requests[0].payload.message.checkPermissions, false)
+  assert.equal(host.state.requests[0].payload.message.body, BODY)
+  assert.equal(host.state.requests.filter((request) => request.route === '/permissions/quote').length, 0)
+  assert.equal(sender.calls.createAction, 0)
 })
 
 test('M0 rejects malformed/plaintext envelopes before transport and records failed', async (testContext) => {
