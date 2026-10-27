@@ -23,6 +23,15 @@ MapApp SDK 4 qualification is not a general upstream SDK 4 support claim. Treat 
 change when it can affect authenticated HTTP, payment behavior, ciphertext
 envelopes, canonical identifiers, cursors, or database semantics.
 
+## SDK 4 dependency update (0.1.2 candidate)
+
+The dependency graph uses official SDK 4.0.0 and released auth/MessageBox
+packages that declare SDK 4 support. No override or application wallet adapter
+is required. This does not change ciphertext, database schema, cursors, epochs
+or key ownership. Replayed signed requests can receive the stock middleware's
+401 / ERR_AUTH_FAILED before Store routes; the Store unsigned-request gate
+retains 401 / ERR_AUTHENTICATION_REQUIRED. Both are authentication refusals.
+
 ## Upgrade preflight
 
 Before changing the package, service image, dependencies, or schema:

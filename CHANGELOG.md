@@ -7,6 +7,17 @@ The first proposed public npm prerelease is
 Open BSV License Version 6, granted by `jdr377`.
 This is evaluation versioning, not production release approval.
 
+## 0.1.2 — 27 October 2026
+
+- Use official SDK 4.0.0, auth middleware 2.2.10, Message Box Client 2.6.1
+  and test-only AuthSocket 2.1.10. All selected upstream peer declarations
+  support SDK 4; no dependency override is required.
+- Preserve ciphertext, storage, cursors, wallet ownership and free-only delivery.
+  No database or wallet migration is introduced.
+- A replayed signed request is now rejected by stock auth middleware with
+  HTTP 401 / ERR_AUTH_FAILED before the Store route. Store's own unsigned-request
+  gate still returns ERR_AUTHENTICATION_REQUIRED. Fresh signed reads still work.
+
 ## 0.1.1 — 23 October 2026
 
 - Update SDK 2.7.1 to 3.2.1, auth middleware 2.2.3 to 2.2.9,

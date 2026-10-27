@@ -72,7 +72,7 @@ test('payment-disabled WalletInterface forwards identity, auth crypto, encryptio
     'verifyHmac',
     'verifySignature',
     'waitForAuthentication',
-  ], 'the facade mirrors all public WalletInterface methods in the qualified SDK 3.2.1 baseline')
+  ], 'the facade mirrors all public WalletInterface methods in the qualified SDK 4.0.0 baseline')
   const senderIdentityKey = (await senderWallet.getPublicKey({ identityKey: true })).publicKey
   const recipientIdentityKey = (await recipientWallet.getPublicKey({ identityKey: true })).publicKey
   const plaintext = Array.from(new TextEncoder().encode('wallet facade remains useful'))

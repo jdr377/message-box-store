@@ -804,7 +804,9 @@ test('M2.1d replayed signed retrieval requests fail closed', async (t) => {
   assert.ok(signed, 'captured the signed browse request')
   const replay = await plainJson(signed.url, { method: 'GET', headers: { ...signed.headers } })
   assert.equal(replay.status, 401)
-  assert.equal(replay.body?.code, 'ERR_AUTHENTICATION_REQUIRED')
+  // Stock middleware now rejects the replay before Store's route/replay guard.
+  assert.equal(replay.body?.code, 'ERR_AUTH_FAILED')
+  assert.equal((await browse(h, qs({ limit: '10' }))).status, 200)
 })
 
 test('M2.1d retrieval validators and cursor mapping are stable and redacted', async () => {

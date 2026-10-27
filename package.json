@@ -1,6 +1,6 @@
 {
   "name": "@jdr377/message-box-store",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Application-independent encrypted message history storage for Message Box clients.",
   "type": "module",
   "bin": {
@@ -73,9 +73,9 @@
     "config:check": "node scripts/ops.mjs check-config"
   },
   "dependencies": {
-    "@bsv/auth-express-middleware": "2.2.9",
-    "@bsv/message-box-client": "2.6.0",
-    "@bsv/sdk": "3.2.1",
+    "@bsv/auth-express-middleware": "2.2.10",
+    "@bsv/message-box-client": "2.6.1",
+    "@bsv/sdk": "4.0.0",
     "express": "5.3.0"
   },
   "peerDependencies": {
@@ -124,7 +124,7 @@
   ],
   "license": "SEE LICENSE IN LICENSE.txt",
   "devDependencies": {
-    "@bsv/authsocket": "2.1.9",
+    "@bsv/authsocket": "2.1.10",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "dotenv": "^18.0.1",
