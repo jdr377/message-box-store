@@ -67,21 +67,24 @@ database code. See [public subpaths](PUBLIC_SUBPATHS.md) and
 [upgrade guidance](UPGRADING.md). Package engine ranges are not a measured
 deployment throughput or broad runtime/storage certification.
 
-## Remaining follow-ups
+## Security review and remaining follow-up
 
-- `mbs-8g5.5.2.4`: independent security sign-off. Maintainer audits and tests
-  do not supply this. The September audit's three storage-bound findings were
-  remediated (`mbs-bij.1`–`.3`); later registry audits also ran. Neither fact
-  proves independent human acceptance of the full threat model.
-- `mbs-8g5.5.2.5`: a supported deployment/runtime/storage matrix and measured
-  capacity statement. License, package name, registry owner, stable versioning
-  and immutable release mechanics are settled; broader legal assurances or
-  throughput/SLO claims are not inferred from publication.
+`mbs-8g5.5.2.4` is complete. The [28 October independent AI review and
+coordinator acceptance](reviews/2026-10-28-independent-security-review.md#coordinator-acceptance--28-october-2026)
+records five repaired findings, 342 full-script passes (25 gated MySQL skips),
+separate real MySQL regression/integration passes and the qualification limits.
+This does not claim human certification. The repairs are local source changes;
+published 0.1.2 remains unchanged until a separately authorized release.
+
+`mbs-8g5.5.2.5` remains for a concise supported deployment/runtime/storage
+statement. Record measured capacity only if making a quantitative claim; this
+is not a new load-test or throughput/SLO requirement. License, registry owner,
+stable versioning and immutable release mechanics are settled.
 
 The obsolete deep history DNS cleanup (`mbs-8g5.6.5`) is complete: both
-authoritative servers report the old hostname absent, while the active
-history service passes HTTPS health/readiness. This was read-only verification.
+authoritative servers reported the old hostname absent, while the active
+history service passed HTTPS health/readiness at that review. This was read-only
+verification, not a claim of current availability.
 
-The old M4/prerelease aggregate beads are retired tracking, not a claim that
-the remaining sign-off or deployment-capacity work passed. Historical audits
-retain their original scope and results.
+The old M4/prerelease aggregate beads are retired tracking. Historical audits
+retain their original scope and results; later acceptance is recorded separately.

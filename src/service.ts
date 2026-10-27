@@ -2292,6 +2292,72 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     next()
   })
 
+  app.get('/healthz', (_req: Request, res: Response) => {
+    res.status(200).json({ status: 'ok', version: state.version })
+  })
+
+  // M2.2a.2 finite active-request admission (mbs-8g5.3.2.1.2; readiness
+  // included per mbs-8g5.3.2.1.2.1): at most maxConcurrentRequests requests
+  // may be in flight past the public liveness route above — the ONLY
+  // bypass, so /healthz stays available at the bound — and before the
+  // readiness probe, authentication, replay-window or repository work. The
+  // database-backed /ready route sits BELOW this middleware, so a readiness
+  // flood cannot queue unbounded checkDatabase work against the bounded
+  // pool: saturated /ready fails typed 503 via the shared ERR_UNAVAILABLE
+  // envelope without invoking the probe and without being counted.
+  // Responses rejected by cheap origin/declared-length gates never reach
+  // this middleware. Parser errors below release their acquired slot. Each request
+  // releases its slot exactly once on response finish or connection close —
+  // success, typed failures and thrown errors all terminate in one of those
+  // two events, and client aborts fire close. The released-flag guard makes
+  // double events (finish then close) safe. M2.2b.2 (mbs-8g5.3.2.2.2): the
+  // shared AdmissionTracker also rejects new work once stop() begins drain —
+  // the same typed 503, without counting the rejection. Process-local by
+  // design: no cleanup or logging taxonomy, no distributed coordination.
+  const admission = state.admission ?? createAdmissionTracker()
+  const maxConcurrentRequests = state.maxConcurrentRequests ?? LIMITS.MAX_CONCURRENT_REQUESTS
+  app.use((req, res, next) => {
+    if (!admission.tryAcquire(maxConcurrentRequests)) {
+      next(authError(503, SERVICE_UNAVAILABLE_CODE, 'service unavailable'))
+      return
+    }
+    let released = false
+    const release = (): void => {
+      if (released) return
+      released = true
+      admission.release()
+    }
+    res.on('finish', release)
+    res.on('close', release)
+    req.on('aborted', release)
+    next()
+  })
+
+  // M2.2a.3 pre-auth per-IP rate limit (mbs-8g5.3.2.1.3): after admission
+  // and before the readiness probe, authentication, replay window or
+  // repository work, so rate excess fails typed 429 without auth/database
+  // work; the admitted pass-through releases its slot on the 429 response
+  // like any other typed failure. Bucket keys are normalized socket
+  // addresses only — every forwarding header is ignored unless the single
+  // configured trustedProxy equals that socket, in which case the rightmost
+  // X-Forwarded-For hop is the key. Public liveness above still bypasses
+  // this limit. Process-local fixed window over the M1 per-minute default;
+  // no distributed counters or proxy discovery.
+  const trustedProxy = parseTrustedProxy(state.trustedProxy ?? '')
+  const ipRateLimiter = state.ipRateLimiter ?? createFixedWindowRateLimiter({
+    limit: state.preAuthRatePerMinPerIp ?? LIMITS.PRE_AUTH_RATE_PER_MIN_PER_IP,
+  })
+  app.use((req, _res, next) => {
+    const decision = ipRateLimiter.consume(resolveRateLimitIpKey(req, trustedProxy))
+    if (!decision.allowed) {
+      next(rateLimitError(decision.retryAfterSeconds ?? 1))
+      return
+    }
+    next()
+  })
+
+  // Admission and the IP allowance cover body reads, inflation and parsing,
+  // including malformed JSON and slow/aborted requests (security F1).
   // Parse every valid JSON value so route validators can consistently reject
   // primitive/array bodies with the authenticated typed error envelope. The
   // mutation contracts themselves still require plain JSON objects. The auth
@@ -2317,69 +2383,6 @@ export async function createServiceApp(state: ServiceAppState): Promise<Express>
     } catch (error) {
       next(error)
     }
-  })
-
-  app.get('/healthz', (_req: Request, res: Response) => {
-    res.status(200).json({ status: 'ok', version: state.version })
-  })
-
-  // M2.2a.2 finite active-request admission (mbs-8g5.3.2.1.2; readiness
-  // included per mbs-8g5.3.2.1.2.1): at most maxConcurrentRequests requests
-  // may be in flight past the public liveness route above — the ONLY
-  // bypass, so /healthz stays available at the bound — and before the
-  // readiness probe, authentication, replay-window or repository work. The
-  // database-backed /ready route sits BELOW this middleware, so a readiness
-  // flood cannot queue unbounded checkDatabase work against the bounded
-  // pool: saturated /ready fails typed 503 via the shared ERR_UNAVAILABLE
-  // envelope without invoking the probe and without being counted.
-  // Responses rejected by earlier ingress gates (403/413/400) never reach
-  // this middleware and so never consume a slot. Each admitted request
-  // releases its slot exactly once on response finish or connection close —
-  // success, typed failures and thrown errors all terminate in one of those
-  // two events, and client aborts fire close. The released-flag guard makes
-  // double events (finish then close) safe. M2.2b.2 (mbs-8g5.3.2.2.2): the
-  // shared AdmissionTracker also rejects new work once stop() begins drain —
-  // the same typed 503, without counting the rejection. Process-local by
-  // design: no cleanup or logging taxonomy, no distributed coordination.
-  const admission = state.admission ?? createAdmissionTracker()
-  const maxConcurrentRequests = state.maxConcurrentRequests ?? LIMITS.MAX_CONCURRENT_REQUESTS
-  app.use((_req, res, next) => {
-    if (!admission.tryAcquire(maxConcurrentRequests)) {
-      next(authError(503, SERVICE_UNAVAILABLE_CODE, 'service unavailable'))
-      return
-    }
-    let released = false
-    const release = (): void => {
-      if (released) return
-      released = true
-      admission.release()
-    }
-    res.on('finish', release)
-    res.on('close', release)
-    next()
-  })
-
-  // M2.2a.3 pre-auth per-IP rate limit (mbs-8g5.3.2.1.3): after admission
-  // and before the readiness probe, authentication, replay window or
-  // repository work, so rate excess fails typed 429 without auth/database
-  // work; the admitted pass-through releases its slot on the 429 response
-  // like any other typed failure. Bucket keys are normalized socket
-  // addresses only — every forwarding header is ignored unless the single
-  // configured trustedProxy equals that socket, in which case the rightmost
-  // X-Forwarded-For hop is the key. Public liveness above still bypasses
-  // this limit. Process-local fixed window over the M1 per-minute default;
-  // no distributed counters or proxy discovery.
-  const trustedProxy = parseTrustedProxy(state.trustedProxy ?? '')
-  const ipRateLimiter = state.ipRateLimiter ?? createFixedWindowRateLimiter({
-    limit: state.preAuthRatePerMinPerIp ?? LIMITS.PRE_AUTH_RATE_PER_MIN_PER_IP,
-  })
-  app.use((req, _res, next) => {
-    const decision = ipRateLimiter.consume(resolveRateLimitIpKey(req, trustedProxy))
-    if (!decision.allowed) {
-      next(rateLimitError(decision.retryAfterSeconds ?? 1))
-      return
-    }
-    next()
   })
 
   // Readiness (mbs-8g5.3.1.5, fail-closed probe gate mbs-8g5.3.1.5.1):

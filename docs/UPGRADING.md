@@ -31,6 +31,46 @@ or key ownership. Replayed signed requests can receive the stock middleware's
 401 / ERR_AUTH_FAILED before Store routes; the Store unsigned-request gate
 retains 401 / ERR_AUTHENTICATION_REQUIRED. Both are authentication refusals.
 
+## Unreleased security repairs after published 0.1.2
+
+The current checkout repairs the five findings in the
+[independent review](reviews/2026-10-28-independent-security-review.md).
+Published 0.1.2 and its qualified tarball remain unchanged. No new version,
+publication, deployment or production migration is implied.
+
+The wire shapes, canonical record keys, ciphertext and existing database schema
+stay compatible. Custom recovery epochs rotate to a fresh canonical bounded
+value on delete-all. Admission/IP rates now cover JSON ingestion and malformed
+bodies; under load these requests may receive 503/429 before parsing. Public
+liveness and allowed CORS preflight remain available. Browse stops at both count
+and exact JSON byte bounds and returns a continuation at the last emitted key;
+SQL body reads stop within one page budget plus one body. Snapshot creation
+checks capacity before reading membership and never fetches unused ciphertext.
+
+Security remediation in the unreleased checkout adds a separate default of
+**1,000,000 reserved record keys per owner**: current live rows plus permanent
+body-free deletion markers. A new distinct archive reserves its eventual marker
+slot; deleting that record transfers the reservation and remains possible at or
+above capacity. Exact archive retries and immutable-conflict checks precede
+this admission check, including duplicate keys in one batch. New keys at the
+bound return the existing per-record `quotaExceeded / ERR_QUOTA_EXCEEDED`
+outcome. This is a finite implementation default, not a measured disk-capacity
+or throughput claim, and is independent of the 10,000 active-record limit.
+
+Existing rows and markers are counted under the existing owner transaction/lock,
+once per batch. No schema migration or backfill is required. Existing owners
+already over this boundary keep read, state-update, exact-retry and deletion
+access; only new distinct keys are refused. Markers do not expire and are never
+cleared automatically. Explicit owner delete-all retains its existing clearing
+and epoch-rotation behavior; it is destructive, not an automatic quota repair.
+
+The repaired SQL paths passed coordinator validation on MySQL 8.4.13/InnoDB,
+including recovery, bounded browse, snapshot quotas, concurrent reservation
+admission and reconnect behavior. The full package script also passed; its
+deliberately gated MySQL tests were qualified separately for the named cases
+recorded in the review. Reverting to 0.1.2 restores its original resource gaps;
+no database rollback is needed for this schema-neutral change.
+
 ## Upgrade preflight
 
 Before changing the package, service image, dependencies, or schema:

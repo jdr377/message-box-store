@@ -173,6 +173,24 @@ before unbounded parsing or database work. Lower limits are safe. Raising a
 limit requires representative load/memory evidence and a documented operator
 choice. There is no unlimited mode by default.
 
+
+Security remediation in the unreleased checkout adds a separate default of
+**1,000,000 reserved record keys per owner**: current live rows plus permanent
+body-free deletion markers. A new distinct archive reserves its eventual marker
+slot; deleting that record transfers the reservation and remains possible at or
+above capacity. Exact archive retries and immutable-conflict checks precede
+this admission check, including duplicate keys in one batch. New keys at the
+bound return the existing per-record `quotaExceeded / ERR_QUOTA_EXCEEDED`
+outcome. This is a finite implementation default, not a measured disk-capacity
+or throughput claim, and is independent of the 10,000 active-record limit.
+
+Existing rows and markers are counted under the existing owner transaction/lock,
+once per batch. No schema migration or backfill is required. Existing owners
+already over this boundary keep read, state-update, exact-retry and deletion
+access; only new distinct keys are refused. Markers do not expire and are never
+cleared automatically. Explicit owner delete-all retains its existing clearing
+and epoch-rotation behavior; it is destructive, not an automatic quota repair.
+
 An owner-authorized deletion removes the body from the active service and the
 owner's local cache immediately, and releases live count/byte quota in the
 same transaction. The service emits a minimal owner-scoped delete change with

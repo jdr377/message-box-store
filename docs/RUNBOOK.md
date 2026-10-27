@@ -70,6 +70,23 @@ removes it, preserves backup-resident inbound/outbound ciphertext, rejects a
 stale writer, reports the post-backup loss boundary, and forces a second-device
 replica through complete snapshot reconciliation.
 
+## Unreleased reservation and ingress boundary
+
+Published 0.1.2 does not contain the repairs described in the
+[review remediation addendum](reviews/2026-10-28-independent-security-review.md#remediation-addendum--28-october-2026).
+In the repaired checkout, the same admission and IP controls cover body parsing;
+malformed requests consume rate allowance and body aborts release admission.
+
+A separate default of 1,000,000 live-plus-deleted record keys per owner reserves
+future deletion capacity. Operators can inspect existing live counts and
+`physical.tombstoneCount` through the repository's existing storage statistics.
+A zero live-byte count alone no longer proves new-key admission is available.
+Over-limit existing owners retain reads, state updates, exact archive retries
+and deletions; new keys return the ordinary quota outcome. No migration, marker
+expiry, automatic marker clearing or runtime configuration change is required.
+Explicit delete-all remains a destructive owner operation. The default is an
+admission boundary, not a measured capacity statement.
+
 ## Prerequisites
 
 - Bun 1.x (Node.js 22+ also works for the gate scripts)

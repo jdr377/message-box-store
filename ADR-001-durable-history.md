@@ -455,6 +455,24 @@ separately. Response-byte limits
 include JSON overhead: every allowed record must fit a page or yield a typed
 error, never an empty continuation loop.
 
+
+Security remediation in the unreleased checkout adds a separate default of
+**1,000,000 reserved record keys per owner**: current live rows plus permanent
+body-free deletion markers. A new distinct archive reserves its eventual marker
+slot; deleting that record transfers the reservation and remains possible at or
+above capacity. Exact archive retries and immutable-conflict checks precede
+this admission check, including duplicate keys in one batch. New keys at the
+bound return the existing per-record `quotaExceeded / ERR_QUOTA_EXCEEDED`
+outcome. This is a finite implementation default, not a measured disk-capacity
+or throughput claim, and is independent of the 10,000 active-record limit.
+
+Existing rows and markers are counted under the existing owner transaction/lock,
+once per batch. No schema migration or backfill is required. Existing owners
+already over this boundary keep read, state-update, exact-retry and deletion
+access; only new distinct keys are refused. Markers do not expire and are never
+cleared automatically. Explicit owner delete-all retains its existing clearing
+and epoch-rotation behavior; it is destructive, not an automatic quota repair.
+
 Auxiliary storage has separate physical admission limits. Each owner may hold
 at most 32 snapshot anchors and 40,000 materialized membership rows, counting
 expired or invalidated rows until they are physically purged. A new snapshot

@@ -38,6 +38,7 @@ import {
   assembleChangePage,
   assembleSnapshotPage,
   boundFeedLimit,
+  createBrowsePageBuilder,
   decodeSnapshotPosition,
   matchesFeedFilter as matchesFeedFilterMysql,
   prepareChangesRead,
@@ -382,7 +383,9 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       if (epoch !== st.epoch) {
         return archiveEpochChanged(records, st.epoch)
       }
-      const projected = { count: st.recordCount, bytes: st.byteCount }
+      const markerCount = Number((await trx.raw('SELECT COUNT(*) AS n FROM history_tombstones WHERE owner_identity_key = ?', [owner]))[0][0].n)
+      const projected = { count: st.recordCount, bytes: st.byteCount, reservedKeys: st.recordCount + markerCount }
+      const pending = new Map()
       const planned = []
       for (let index = 0; index < records.length; index += 1) {
         const rec = records[index]
@@ -391,7 +394,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
           planned.push(archiveInvalidOutcome(index, rec, check))
           continue
         }
-        const existing = (await trx.raw(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`, [owner, check.recordKey]))[0][0] ?? null
+        const existing = pending.get(check.recordKey) ?? (await trx.raw(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`, [owner, check.recordKey]))[0][0] ?? null
         if (existing) {
           const outcome = archiveExistingOutcome(index, rec, check, normalizeMysqlImmutable(existing))
           if (outcome.outcome === 'conflict') {
@@ -414,7 +417,12 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
             continue
           }
         }
-        planned.push(archiveAdmissionOutcome(index, rec, check, projected, L))
+        const outcome = archiveAdmissionOutcome(index, rec, check, projected, L)
+        planned.push(outcome)
+        if (outcome.outcome === 'stored') pending.set(check.recordKey, {
+          message_id: rec.messageId, message_box: rec.messageBox, direction: rec.direction,
+          sender: rec.sender, recipient: rec.recipient, body: rec.body, body_hash: check.bodyHash,
+        })
       }
       let seq = BigInt(st.nextSequence)
       const at = new Date().toISOString().slice(0, 19).replace('T', ' ')
@@ -452,6 +460,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
               seq -= 1n
               projected.count -= 1
               projected.bytes -= item.bodyBytes
+              projected.reservedKeys -= 1
               continue
             }
             await auditConflictTrx(trx, owner, item.recordKey, 'race duplicate')
@@ -461,6 +470,7 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
             seq -= 1n
             projected.count -= 1
             projected.bytes -= item.bodyBytes
+            projected.reservedKeys -= 1
             continue
           }
           throw error
@@ -709,7 +719,9 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
       const st = await ensureOwner(trx, owner)
       const currentMax = st.nextSequence === '1' ? '0' : (BigInt(st.nextSequence) - 1n).toString()
       const wBig = BigInt(currentMax)
-      let sql = `SELECT r.*, c.change_sequence AS created_seq FROM history_records r
+      const capacity = (await trx.raw(`SELECT COUNT(*) AS snapshots, COALESCE(SUM((SELECT COUNT(*) FROM history_snapshot_items i WHERE i.snapshot_id = s.snapshot_id)), 0) AS items FROM history_snapshots s WHERE s.owner_identity_key = ?`, [owner]))[0][0]
+      if (Number(capacity.snapshots) >= MAX_SNAPSHOTS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
+      let sql = `SELECT r.owner_identity_key, r.record_key, r.message_box, r.direction, r.sender, r.recipient, r.revision, r.delivery_state, r.change_sequence, r.created_at, c.change_sequence AS created_seq FROM history_records r
                  JOIN history_changes c ON c.owner_identity_key = r.owner_identity_key AND c.record_key = r.record_key AND c.kind = 'upsert'
                  WHERE r.owner_identity_key = ?`
       const params = [owner]
@@ -725,6 +737,9 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
         sql += ` AND (r.sender = ? OR r.recipient = ?)`
         params.push(filter.participant, filter.participant)
       }
+      const memberCount = Number((await trx.raw('SELECT COUNT(*) AS n ' + sql.slice(sql.indexOf('FROM history_records')), params))[0][0].n)
+      if (Number(capacity.items) + memberCount > MAX_SNAPSHOT_ITEMS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
+      sql += ` LIMIT ${MAX_SNAPSHOT_ITEMS_PER_OWNER}`
       // REPEATABLE READ keeps every read in this transaction on one commit
       // boundary, so W and the materialized rows cannot drift mid-capture.
       // Participant filter has a canonical identity (sender OR recipient) and
@@ -747,8 +762,6 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
         members.push(record)
       }
       members.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.recordKey < b.recordKey ? -1 : 1))
-      const capacity = (await trx.raw(`SELECT COUNT(*) AS snapshots, COALESCE(SUM((SELECT COUNT(*) FROM history_snapshot_items i WHERE i.snapshot_id = s.snapshot_id)), 0) AS items FROM history_snapshots s WHERE s.owner_identity_key = ?`, [owner]))[0][0]
-      if (Number(capacity.snapshots) >= MAX_SNAPSHOTS_PER_OWNER || Number(capacity.items) + members.length > MAX_SNAPSHOT_ITEMS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
       const snapshotId = generateSnapshotId()
       const filterHash = snapshotFilterHash(filter)
       const expiresAt = snapshotExpiryIso().slice(0, 19).replace('T', ' ')
@@ -933,52 +946,37 @@ export function createMysqlStore(knex, { limits = {} } = {}) {
     validateFeedOwner(owner)
     validateSnapshotFilter(filter)
     const bounded = boundFeedLimit(limit)
-    let sql = `SELECT *, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') AS created_at_exact FROM history_records WHERE owner_identity_key = ?`
-    const params = [owner]
-    if (filter.direction !== undefined) {
-      sql += ` AND direction = ?`
-      params.push(filter.direction)
-    }
-    if (filter.messageBox !== undefined) {
-      sql += ` AND message_box = ?`
-      params.push(filter.messageBox)
-    }
-    if (filter.participant !== undefined) {
-      sql += ` AND (sender = ? OR recipient = ?)`
-      params.push(filter.participant, filter.participant)
-    }
-    if (after?.createdAt !== undefined && after?.recordKey !== undefined) {
-      const cursorTs = String(after.createdAt).replace('T', ' ').replace(/Z$/, '')
-      sql += ` AND ((created_at > ?) OR (created_at = ? AND record_key > ?))`
-      params.push(cursorTs, cursorTs, after.recordKey)
-    }
-    sql += ` ORDER BY created_at, record_key LIMIT ${bounded}`
-    const rows = (await knex.raw(sql, params))[0]
-    const items = []
-    for (const row of rows) {
-      const rec = {
-        owner,
-        recordKey: row.record_key,
-        messageId: row.message_id,
-        messageBox: row.message_box,
-        direction: row.direction,
-        sender: row.sender,
-        recipient: row.recipient,
-        body: row.body,
-        bodyHash: row.body_hash,
-        bodyBytes: Number(row.body_bytes),
-        deliveryState: row.delivery_state,
-        revision: String(row.revision),
-        changeSequence: String(row.change_sequence),
-        createdAt: toIso(row.created_at_exact),
-        archivedAt: toIso(row.archived_at),
-        expiresAt: toIso(row.expires_at),
+    return knex.transaction(async (trx) => {
+      let sql = `SELECT record_key, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') AS created_at_exact FROM history_records WHERE owner_identity_key = ?`
+      const params = [owner]
+      if (filter.direction !== undefined) {
+        sql += ` AND direction = ?`
+        params.push(filter.direction)
       }
-      if (!matchesFeedFilterMysql(rec, filter)) continue
-      items.push(rec)
-    }
-    const last = items[items.length - 1]
-    return { items, nextAfter: items.length === bounded && last ? { createdAt: last.createdAt, recordKey: last.recordKey } : null }
+      if (filter.messageBox !== undefined) {
+        sql += ` AND message_box = ?`
+        params.push(filter.messageBox)
+      }
+      if (filter.participant !== undefined) {
+        sql += ` AND (sender = ? OR recipient = ?)`
+        params.push(filter.participant, filter.participant)
+      }
+      if (after?.createdAt !== undefined && after?.recordKey !== undefined) {
+        const cursorTs = String(after.createdAt).replace('T', ' ').replace(/Z$/, '')
+        sql += ` AND ((created_at > ?) OR (created_at = ? AND record_key > ?))`
+        params.push(cursorTs, cursorTs, after.recordKey)
+      }
+      sql += ` ORDER BY created_at, record_key LIMIT ${bounded + 1}`
+      const keys = (await trx.raw(sql, params))[0]
+      const page = createBrowsePageBuilder({ limit: bounded })
+      for (const key of keys.slice(0, bounded)) {
+        const row = (await trx.raw('SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?', [owner, key.record_key]))[0][0]
+        if (!row) continue
+        const rec = { ...toRecord(owner, row), createdAt: toIso(key.created_at_exact) }
+        if (!page.add(rec)) return page.finish(true)
+      }
+      return page.finish(keys.length > bounded)
+    })
   }
 
   async function listChangesPage({ owner, serverSecret, cursor = null, afterSequence, expectedEpoch, limit = 100, filter = {}, nowSeconds, nowIso: nowIsoValue, ttlSeconds } = {}) {

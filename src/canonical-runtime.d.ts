@@ -3,6 +3,7 @@ export const RECORD_DOMAIN: 'message-box-store:record:v1'
 export const CURSOR_DOMAIN: 'message-box-store:cursor:v1'
 export const LIMITS: Readonly<{
   MAX_RECORDS_PER_OWNER: 10000
+  MAX_RESERVED_RECORD_KEYS_PER_OWNER: 1000000
   MAX_BYTES_PER_OWNER: 1073741824
   MAX_BODY_BYTES: 1048576
   MAX_BATCH_RECORDS: 100

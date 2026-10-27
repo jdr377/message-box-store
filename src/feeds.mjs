@@ -296,6 +296,32 @@ export function fitRecordsToPage({ records, limit, overheadBytes = PAGE_OVERHEAD
   return { admitted, bytes: total }
 }
 
+/** Byte-aware live browse page; SQL adapters fetch at most one body past fit. */
+export function createBrowsePageBuilder({ limit, maxBytes = LIMITS.MAX_PAGE_BYTES }) {
+  const items = []
+  let recordBytes = 0
+  return {
+    add(record) {
+      if (items.length >= limit) return false
+      const bytes = estimateJsonBytes(record)
+      const nextAfter = { createdAt: record.createdAt, recordKey: record.recordKey }
+      const overhead = estimateJsonBytes({ records: [], nextAfter })
+      const total = overhead + recordBytes + bytes + items.length
+      if (total > maxBytes) {
+        if (items.length === 0) throw feedError('ERR_REQUEST_TOO_LARGE', 'single record exceeds browse page budget')
+        return false
+      }
+      recordBytes += bytes
+      items.push(record)
+      return true
+    },
+    finish(hasMore) {
+      const last = items[items.length - 1]
+      return { items, nextAfter: hasMore && last ? { createdAt: last.createdAt, recordKey: last.recordKey } : null }
+    },
+  }
+}
+
 /** Exact serialized HistoryPage bytes excluding the records array itself. */
 export function historyPageOverheadBytes(page) {
   const marker = '__MESSAGE_BOX_RECORDS__'

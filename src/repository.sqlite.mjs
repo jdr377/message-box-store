@@ -50,6 +50,7 @@ import {
   assembleChangePage,
   assembleSnapshotPage,
   boundFeedLimit,
+  createBrowsePageBuilder,
   decodeSnapshotPosition,
   matchesFeedFilter,
   prepareChangesRead,
@@ -237,7 +238,9 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
           db.exec('ROLLBACK')
           return archiveEpochChanged(records, st.epoch)
         }
-        const projected = { count: st.recordCount, bytes: st.byteCount }
+        const markerCount = Number(db.prepare('SELECT COUNT(*) AS n FROM history_tombstones WHERE owner_identity_key = ?').get(owner).n)
+        const projected = { count: st.recordCount, bytes: st.byteCount, reservedKeys: st.recordCount + markerCount }
+        const pending = new Map()
         const planned = []
         for (let index = 0; index < records.length; index += 1) {
           const record = records[index]
@@ -246,7 +249,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
             planned.push(archiveInvalidOutcome(index, record, check))
             continue
           }
-          const existing = db.prepare(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`).get(owner, check.recordKey)
+          const existing = pending.get(check.recordKey) ?? db.prepare(`SELECT * FROM history_records WHERE owner_identity_key = ? AND record_key = ?`).get(owner, check.recordKey)
           if (existing) {
             const left = {
               messageId: existing.message_id,
@@ -275,7 +278,12 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
               continue
             }
           }
-          planned.push(archiveAdmissionOutcome(index, record, check, projected, L))
+          const outcome = archiveAdmissionOutcome(index, record, check, projected, L)
+          planned.push(outcome)
+          if (outcome.outcome === 'stored') pending.set(check.recordKey, {
+            message_id: record.messageId, message_box: record.messageBox, direction: record.direction,
+            sender: record.sender, recipient: record.recipient, body: record.body, body_hash: check.bodyHash,
+          })
         }
 
         let seq = BigInt(st.nextSequence)
@@ -333,10 +341,11 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
                 item.errorCode = 'ERR_IMMUTABLE_CONFLICT'
               }
               delete item.validated
-              delete item.bodyBytes
               seq -= 1n
               projected.count -= 1
-              projected.bytes -= item.bodyBytes ?? 0
+              projected.bytes -= item.bodyBytes
+              projected.reservedKeys -= 1
+              delete item.bodyBytes
               continue
             }
             throw error
@@ -623,7 +632,9 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
         ensureOwner(owner)
         const st = readOwnerLocked(owner)
         const w = st.nextSequence === '1' ? '0' : (BigInt(st.nextSequence) - 1n).toString()
-        let sql = `SELECT r.*, c.change_sequence AS created_seq FROM history_records r
+        const capacity = db.prepare(`SELECT COUNT(*) AS snapshots, COALESCE(SUM((SELECT COUNT(*) FROM history_snapshot_items i WHERE i.snapshot_id = s.snapshot_id)), 0) AS items FROM history_snapshots s WHERE s.owner_identity_key = ?`).get(owner)
+        if (Number(capacity.snapshots) >= MAX_SNAPSHOTS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
+        let sql = `SELECT r.owner_identity_key, r.record_key, r.message_box, r.direction, r.sender, r.recipient, r.revision, r.delivery_state, r.change_sequence, r.created_at, c.change_sequence AS created_seq FROM history_records r
                    JOIN history_changes c ON c.owner_identity_key = r.owner_identity_key AND c.record_key = r.record_key AND c.kind = 'upsert'
                    WHERE r.owner_identity_key = ?`
         const params = [owner]
@@ -639,17 +650,22 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
           sql += ` AND (r.sender = ? OR r.recipient = ?)`
           params.push(filter.participant, filter.participant)
         }
+        const memberCount = Number(db.prepare('SELECT COUNT(*) AS n ' + sql.slice(sql.indexOf('FROM history_records'))).get(...params).n)
+        if (Number(capacity.items) + memberCount > MAX_SNAPSHOT_ITEMS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
+        sql += ` LIMIT ${MAX_SNAPSHOT_ITEMS_PER_OWNER}`
         const wBig = BigInt(w)
         const members = []
         for (const row of db.prepare(sql).all(...params)) {
           if (BigInt(row.created_seq) > wBig) continue // created after W: not a member
-          const record = toRecord(row)
+          const record = {
+            recordKey: row.record_key, direction: row.direction, messageBox: row.message_box,
+            sender: row.sender, recipient: row.recipient, revision: String(row.revision),
+            deliveryState: row.delivery_state, changeSequence: String(row.change_sequence), createdAt: row.created_at,
+          }
           if (!matchesSnapshotFilter(record, filter)) continue
           members.push(record)
         }
         members.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.recordKey < b.recordKey ? -1 : 1))
-        const capacity = db.prepare(`SELECT COUNT(*) AS snapshots, COALESCE(SUM((SELECT COUNT(*) FROM history_snapshot_items i WHERE i.snapshot_id = s.snapshot_id)), 0) AS items FROM history_snapshots s WHERE s.owner_identity_key = ?`).get(owner)
-        if (Number(capacity.snapshots) >= MAX_SNAPSHOTS_PER_OWNER || Number(capacity.items) + members.length > MAX_SNAPSHOT_ITEMS_PER_OWNER) auxiliaryQuotaExceeded('snapshot')
         const snapshotId = generateSnapshotId()
         const filterHash = snapshotFilterHash(filter)
         const expiresAt = snapshotExpiryIso()
@@ -851,7 +867,7 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
     validateFeedOwner(owner)
     validateSnapshotFilter(filter)
     const bounded = boundFeedLimit(limit)
-    let sql = `SELECT * FROM history_records WHERE owner_identity_key = ?`
+    let sql = `SELECT record_key FROM history_records WHERE owner_identity_key = ?`
     const params = [owner]
     if (filter.direction !== undefined) {
       sql += ` AND direction = ?`
@@ -870,10 +886,14 @@ export async function createSqliteStore({ path = ':memory:', limits = {}, now } 
       params.push(after.createdAt, after.createdAt, after.recordKey)
     }
     sql += ` ORDER BY created_at, record_key LIMIT ?`
-    params.push(bounded)
-    const rows = db.prepare(sql).all(...params).map(toRecord).filter((r) => matchesFeedFilter(r, filter))
-    const last = rows[rows.length - 1]
-    return { items: rows, nextAfter: rows.length === bounded && last ? { createdAt: last.createdAt, recordKey: last.recordKey } : null }
+    params.push(bounded + 1)
+    const keys = db.prepare(sql).all(...params)
+    const page = createBrowsePageBuilder({ limit: bounded })
+    for (const key of keys.slice(0, bounded)) {
+      const record = getRecord({ owner, recordKey: key.record_key })
+      if (!page.add(record)) return page.finish(true)
+    }
+    return page.finish(keys.length > bounded)
   }
 
   /**

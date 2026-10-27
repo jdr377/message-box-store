@@ -17,6 +17,8 @@ export const CURSOR_DOMAIN = 'message-box-store:cursor:v1'
 
 export const LIMITS = Object.freeze({
   MAX_RECORDS_PER_OWNER: 10_000,
+  // Live rows reserve their eventual permanent deletion-marker slot.
+  MAX_RESERVED_RECORD_KEYS_PER_OWNER: 1_000_000,
   MAX_BYTES_PER_OWNER: 1024 * 1024 * 1024,
   MAX_BODY_BYTES: 1024 * 1024,
   MAX_BATCH_RECORDS: 100,

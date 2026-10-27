@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import {
   assertOwnerDirection,
@@ -97,7 +97,11 @@ export function rotateOwnerEpoch(epoch) {
     }
     return `gen-${(generation + 1n).toString()}`
   }
-  return `${epoch}#${Date.now()}`
+  // Recovery accepts arbitrary canonical epochs; keep rotation bounded and
+  // distinct even for a 128-character recovery epoch or same-clock requests.
+  let next
+  do { next = `epoch-${randomUUID()}` } while (next === epoch)
+  return validateEpoch(next)
 }
 
 export function validateArchiveInput({ owner, epoch, record, ownerEpoch }) {
@@ -194,11 +198,13 @@ export function archiveExistingOutcome(index, record, check, existing) {
 }
 
 export function archiveAdmissionOutcome(index, record, check, projected, limits = LIMITS) {
-  if (projected.count + 1 > limits.MAX_RECORDS_PER_OWNER || projected.bytes + check.bodyBytes > limits.MAX_BYTES_PER_OWNER) {
+  if (projected.count + 1 > limits.MAX_RECORDS_PER_OWNER || projected.bytes + check.bodyBytes > limits.MAX_BYTES_PER_OWNER ||
+      projected.reservedKeys + 1 > limits.MAX_RESERVED_RECORD_KEYS_PER_OWNER) {
     return { index, recordKey: check.recordKey, outcome: 'quotaExceeded', errorCode: 'ERR_QUOTA_EXCEEDED' }
   }
   projected.count += 1
   projected.bytes += check.bodyBytes
+  projected.reservedKeys += 1
   return { index, recordKey: check.recordKey, outcome: 'stored', bodyHash: check.bodyHash, bodyBytes: check.bodyBytes, validated: { ...record } }
 }
 

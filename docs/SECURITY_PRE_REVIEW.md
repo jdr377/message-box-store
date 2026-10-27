@@ -5,8 +5,9 @@ on official SDK 4.0.0 with compatible auth/MessageBox packages and no SDK
 override. See [current release evidence](RELEASE_EVIDENCE.md) for the tested
 graph, artifact and remaining follow-ups. Later dependency audits ran, the
 license/registry/version decisions were made, and the package was published.
-Those earlier pending decisions below are historical. Independent sign-off
-and broader deployment/capacity acceptance remain separate open tasks.
+Those earlier pending decisions below are historical. The 28 October independent
+AI review and coordinator acceptance are recorded in the current release evidence;
+the concise deployment/support statement remains separate. Published 0.1.2 is unchanged.
 
 Status: maintainer pre-review for `mbs-8g5.5.2`, based on source and executable
 evidence at commit `7d84a74` plus the uncommitted deterministic-runner change.
