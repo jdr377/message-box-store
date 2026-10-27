@@ -1,11 +1,20 @@
 # Changelog
 
-All notable changes to `message-box-store` will be recorded here.
+Stable versions are published under `latest`. Original code uses Open BSV License
+Version 6, granted by `jdr377`. Earlier entries retain their historical scope.
 
-The first proposed public npm prerelease is
-`@jdr377/message-box-store@0.1.0-beta.0`. Its original code is under
-Open BSV License Version 6, granted by `jdr377`.
-This is evaluation versioning, not production release approval.
+## 0.1.3 — 28 October 2026
+
+- Apply admission and IP limits before request-body parsing, including malformed
+  bodies, and release admission on aborted requests.
+- Keep delete-all epochs canonical after restore recovery.
+- Bound browse pages by serialized bytes and preserve exact continuation order.
+- Check snapshot capacity before reading metadata; omit unused ciphertext.
+- Reserve up to 1,000,000 live-plus-deleted record keys per owner without
+  expiring deletion markers. Existing over-limit owners retain reads, retries,
+  state changes and deletions; only new distinct keys are refused.
+- Document the tested deployment/support baseline. No dependency, wire, key or
+  database-schema migration is introduced.
 
 ## 0.1.2 — 27 October 2026
 

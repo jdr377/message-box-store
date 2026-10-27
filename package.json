@@ -1,6 +1,6 @@
 {
   "name": "@jdr377/message-box-store",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Application-independent encrypted message history storage for Message Box clients.",
   "type": "module",
   "bin": {

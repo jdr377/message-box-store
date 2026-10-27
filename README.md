@@ -12,15 +12,13 @@ after its encrypted body is archived.
 
 ## Package status
 
-Published version `0.1.2` uses official SDK 4.0.0 and compatible authentication
+Version `0.1.3` uses official SDK 4.0.0 and compatible authentication
 and Message Box Client packages, without an SDK override. Node.js 22+ is the
 declared runtime range; the standalone service uses MySQL 8 with Knex and
 mysql2. The browser-facing entry points have no server or database imports.
 See [release evidence](docs/RELEASE_EVIDENCE.md) for the tested scope.
 
 ## Install
-
-
 
 ```sh
 npm install @jdr377/message-box-store

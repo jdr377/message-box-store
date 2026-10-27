@@ -1,6 +1,6 @@
 # Upgrade, compatibility, and rollback
 
-Current release: `0.1.2`, published under `latest`. This document describes
+Version: `0.1.3`, npm tag `latest`. This document describes
 upgrade boundaries and observed compatibility. Each future publication and
 deployment still requires its own authorization and artifact record.
 
@@ -43,12 +43,12 @@ or key ownership. Replayed signed requests can receive the stock middleware's
 401 / ERR_AUTH_FAILED before Store routes; the Store unsigned-request gate
 retains 401 / ERR_AUTHENTICATION_REQUIRED. Both are authentication refusals.
 
-## Unreleased security repairs after published 0.1.2
+## 0.1.3 security repairs
 
-The current checkout repairs the five findings in the
-[independent review](reviews/2026-10-28-independent-security-review.md).
-Published 0.1.2 and its qualified tarball remain unchanged. No new version,
-publication, deployment or production migration is implied.
+Version 0.1.3 repairs the five findings in the
+[independent review](https://github.com/jdr377/message-box-store/blob/main/docs/reviews/2026-10-28-independent-security-review.md).
+The published 0.1.2 artifact remains immutable. This compatible update requires
+no database migration; deployment is an operator action.
 
 The wire shapes, canonical record keys, ciphertext and existing database schema
 stay compatible. Custom recovery epochs rotate to a fresh canonical bounded
@@ -158,7 +158,7 @@ or replay an ambiguous outbound send as a rollback technique.
 
 ## Versioning and release record
 
-The owner selected stable npm versioning from 0.1.1; 0.1.2 follows that policy:
+The owner selected stable npm versioning from 0.1.1; 0.1.3 follows that policy:
 
 - additive public protocol/client exports are minor changes;
 - compatible fixes are patch changes;

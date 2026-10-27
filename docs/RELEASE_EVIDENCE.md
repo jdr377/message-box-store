@@ -1,12 +1,22 @@
 # Release evidence and follow-ups
 
-Current public release: **@jdr377/message-box-store@0.1.2**, npm tag **latest**.
+Version: **@jdr377/message-box-store@0.1.3**, npm tag **latest**.
 The owner authorized stable versioning, the registry publication and browser
 2FA. Original code uses Open BSV License Version 6; dependency notices remain
 in [THIRD_PARTY_NOTICES](../THIRD_PARTY_NOTICES.md). These decisions no longer
 await an initial prerelease. Deployment approval is separate.
 
-## Published 0.1.2 qualification
+## 0.1.3 security qualification
+
+The five reviewed repairs passed the complete package script: **342 passed,
+zero failures, 25 deliberately gated MySQL skips**. Separate real MySQL tests
+passed six new regression scenarios and four existing integration cases. The
+review records exact scope and limits. Build, typecheck and public exports are
+qualified with the unchanged SDK 4 graph. Exact release artifacts and publication
+verification are recorded in the repository release receipt; passing source
+tests alone does not establish registry publication.
+
+## Published 0.1.2 qualification (historical)
 
 The release uses official SDK **4.0.0**, auth middleware **2.2.10**, Message Box
 Client **2.6.1** and Express **5.3.0**, with no SDK override. Optional production
@@ -36,7 +46,7 @@ wallet-provider restore, exact seven-message-ID/direction comparison,
 archive-before-ack and outage/no-ack recovery. The key alone does not restore
 wallet records. These are scoped historical proofs, not every wallet/device.
 
-MapApp and its public connector 0.1.11 now consume npm Store **0.1.2** without
+Before this update, MapApp and connector 0.1.11 consumed npm Store **0.1.2** without
 source/workspace imports or a forced SDK override. Their SDK 4 consumer and
 installed-archive checks are recorded in the named consumer's release evidence.
 The original private-tarball-before-publication milestone is superseded.
@@ -70,11 +80,11 @@ deployment throughput or broad runtime/storage certification.
 ## Security review and remaining follow-up
 
 `mbs-8g5.5.2.4` is complete. The [28 October independent AI review and
-coordinator acceptance](reviews/2026-10-28-independent-security-review.md#coordinator-acceptance--28-october-2026)
+coordinator acceptance](https://github.com/jdr377/message-box-store/blob/main/docs/reviews/2026-10-28-independent-security-review.md#coordinator-acceptance--28-october-2026)
 records five repaired findings, 342 full-script passes (25 gated MySQL skips),
 separate real MySQL regression/integration passes and the qualification limits.
-This does not claim human certification. The repairs are local source changes;
-published 0.1.2 remains unchanged until a separately authorized release.
+This does not claim human certification. Version 0.1.3 contains the repairs;
+the published 0.1.2 archive remains immutable.
 
 `mbs-8g5.5.2.5` is complete: the owner approved the concise
 [deployment/support statement](UPGRADING.md#deployment-and-support).

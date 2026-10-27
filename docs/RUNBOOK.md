@@ -70,11 +70,11 @@ removes it, preserves backup-resident inbound/outbound ciphertext, rejects a
 stale writer, reports the post-backup loss boundary, and forces a second-device
 replica through complete snapshot reconciliation.
 
-## Unreleased reservation and ingress boundary
+## 0.1.3 reservation and ingress boundary
 
-Published 0.1.2 does not contain the repairs described in the
-[review remediation addendum](reviews/2026-10-28-independent-security-review.md#remediation-addendum--28-october-2026).
-In the repaired checkout, the same admission and IP controls cover body parsing;
+Version 0.1.3 contains the repairs described in the
+[review remediation addendum](https://github.com/jdr377/message-box-store/blob/main/docs/reviews/2026-10-28-independent-security-review.md#remediation-addendum--28-october-2026).
+In 0.1.3, the same admission and IP controls cover body parsing;
 malformed requests consume rate allowance and body aborts release admission.
 
 A separate default of 1,000,000 live-plus-deleted record keys per owner reserves

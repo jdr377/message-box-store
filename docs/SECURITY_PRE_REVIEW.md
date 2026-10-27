@@ -1,13 +1,13 @@
 # M4 internal security pre-review
 
-**Historical maintainer pre-review below.** Current public release is 0.1.2
+**Historical maintainer pre-review below.** The current version is 0.1.3
 on official SDK 4.0.0 with compatible auth/MessageBox packages and no SDK
 override. See [current release evidence](RELEASE_EVIDENCE.md) for the tested
 graph, artifact and remaining follow-ups. Later dependency audits ran, the
 license/registry/version decisions were made, and the package was published.
 Those earlier pending decisions below are historical. The 28 October independent
 AI review and coordinator acceptance are recorded in the current release evidence;
-the concise deployment/support statement remains separate. Published 0.1.2 is unchanged.
+the deployment/support statement is approved. Published 0.1.2 stays immutable.
 
 Status: maintainer pre-review for `mbs-8g5.5.2`, based on source and executable
 evidence at commit `7d84a74` plus the uncommitted deterministic-runner change.
