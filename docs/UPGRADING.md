@@ -22,6 +22,18 @@ required. A host that changes resolution must qualify that effective graph.
 Recheck authenticated HTTP, payment behavior, ciphertext envelopes, canonical
 identifiers, cursors and database semantics when dependencies can affect them.
 
+## Deployment and support
+
+Message Box Store retains encrypted message history for wallet-authenticated
+clients. The deployment baseline is one Node.js service behind HTTPS, backed by
+MySQL 8/InnoDB. Current validation uses Node 22.23.4 and MySQL 8.4.13. SQLite and
+memory adapters provide test coverage.
+
+Wallet keys and message decryption remain client-side. Recovery depends on
+retained wallet keys and successfully archived data. Operators maintain database
+backups and follow the documented restore procedure. Documented quotas apply;
+no throughput or uptime guarantee is offered.
+
 ## SDK 4 dependency update (published 0.1.2)
 
 The dependency graph uses official SDK 4.0.0 and released auth/MessageBox

@@ -76,10 +76,10 @@ separate real MySQL regression/integration passes and the qualification limits.
 This does not claim human certification. The repairs are local source changes;
 published 0.1.2 remains unchanged until a separately authorized release.
 
-`mbs-8g5.5.2.5` remains for a concise supported deployment/runtime/storage
-statement. Record measured capacity only if making a quantitative claim; this
-is not a new load-test or throughput/SLO requirement. License, registry owner,
-stable versioning and immutable release mechanics are settled.
+`mbs-8g5.5.2.5` is complete: the owner approved the concise
+[deployment/support statement](UPGRADING.md#deployment-and-support).
+Exact-archive qualification, publication and consumer adoption remain
+`mbs-8vh`; this statement does not publish or deploy the repaired source.
 
 The obsolete deep history DNS cleanup (`mbs-8g5.6.5`) is complete: both
 authoritative servers reported the old hostname absent, while the active

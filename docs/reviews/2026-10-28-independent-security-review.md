@@ -274,3 +274,10 @@ The coordinator closes `mbs-8g5.5.2.4.1` through `.4.5` and the review parent
 statement remains `mbs-8g5.5.2.5`. All repairs remain local source changes;
 published **0.1.2** is unchanged and does not contain them. No commit, push,
 release or service cutover was performed.
+
+### Subsequent support-statement approval — 28 October 2026
+
+The owner approved the proposed baseline; it is recorded in
+[deployment and support](../UPGRADING.md#deployment-and-support).
+`mbs-8g5.5.2.5` is complete. Release/artifact/consumer work remains
+`mbs-8vh`; published 0.1.2 is unchanged.
