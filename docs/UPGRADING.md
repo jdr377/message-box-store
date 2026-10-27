@@ -1,29 +1,28 @@
 # Upgrade, compatibility, and rollback
 
-Status: `0.1.1` dependency-refresh guidance. This document describes the implemented
-upgrade boundaries; it does not approve a release, deployment, or compatibility
-promise. The release owner must approve the exact artifact and record its digest before publication.
+Current release: `0.1.2`, published under `latest`. This document describes
+upgrade boundaries and observed compatibility. Each future publication and
+deployment still requires its own authorization and artifact record.
 
 ## Compatibility baseline
 
 | Surface | Implemented baseline | Boundary |
 |---|---|---|
-| Package consumer | Node.js 22+, candidate verified on 22.23.4; ESM, CommonJS, browser-conditioned ESM, and TypeScript declarations | Node 24 and broader runtime support remain release gates. |
+| Package consumer | Node.js >=22 declared; observed on 22.23.4; ESM, CommonJS, browser-conditioned ESM, and TypeScript declarations | Other Node versions and deployments need their own qualification. |
 | Browser graph | Root, `client`, `protocol`, and `canonical` exports | No server, database, Node built-in, or direct public 1Sat service dependency. |
-| Server graph | Express 5.3.0, SDK 3.2.1, auth middleware 2.2.9, Message Box Client 2.6.0 | SDK or transport upgrades require rerunning the free-only and authenticated-HTTP security proofs. |
+| Server graph | Express 5.3.0, official SDK 4.0.0, auth middleware 2.2.10, Message Box Client 2.6.1 | SDK or transport upgrades require rerunning the free-only and authenticated-HTTP security proofs. |
 | Production storage | MySQL 8, Knex `^3.3.0`, mysql2 `^3.11.0` | Memory and SQLite adapters are test/parity evidence, not production promises. |
-| Wire/storage contract | Current private v1 protocol, ordered migrations, owner epoch, signed cursors, snapshots, and canonical record keys | Wire or persistence incompatibility requires a major version and explicit migration notes after SemVer begins. |
+| Wire/storage contract | Current v1 wire protocol, ordered migrations, owner epoch, signed cursors, snapshots, and canonical record keys | Wire or persistence incompatibility requires a major version and explicit migration notes. |
 | Identity | One authenticated identity key owns one partition | Rotation, partition merge, and key recovery are unsupported. |
 
 Exact pinned dependencies and executable evidence are recorded in
-[Release evidence](RELEASE_EVIDENCE.md). The standalone candidate uses the
-SDK 3 range declared by its current auth and Message Box dependencies. A host
-that overrides SDK resolution must qualify its effective graph separately;
-MapApp SDK 4 qualification is not a general upstream SDK 4 support claim. Treat a dependency update as a product
-change when it can affect authenticated HTTP, payment behavior, ciphertext
-envelopes, canonical identifiers, cursors, or database semantics.
+[Release evidence](RELEASE_EVIDENCE.md). The standalone release uses official
+SDK 4 within the declared auth and Message Box peer ranges. No SDK override is
+required. A host that changes resolution must qualify that effective graph.
+Recheck authenticated HTTP, payment behavior, ciphertext envelopes, canonical
+identifiers, cursors and database semantics when dependencies can affect them.
 
-## SDK 4 dependency update (0.1.2 candidate)
+## SDK 4 dependency update (published 0.1.2)
 
 The dependency graph uses official SDK 4.0.0 and released auth/MessageBox
 packages that declare SDK 4 support. No override or application wallet adapter
@@ -107,7 +106,7 @@ or replay an ambiguous outbound send as a rollback technique.
 
 ## Versioning and release record
 
-After SemVer is authorized:
+The owner selected stable npm versioning from 0.1.1; 0.1.2 follows that policy:
 
 - additive public protocol/client exports are minor changes;
 - compatible fixes are patch changes;

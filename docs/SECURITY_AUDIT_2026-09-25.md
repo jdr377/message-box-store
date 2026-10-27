@@ -1,5 +1,9 @@
 # Message Box Store security audit — 2026-09-25
 
+**Historical report.** F1–F3 were subsequently remediated; see the dated
+[disposition](#subsequent-disposition--28-october-2026). Independent sign-off
+remains open. Current package qualification is in [release evidence](RELEASE_EVIDENCE.md).
+
 Status: package-maintainer code audit. This is **not** the qualified independent
 human sign-off tracked by `mbs-8g5.5.2.4`, nor publication or deployment approval.
 The reviewed checkout has uncommitted refactor and validation changes. No
@@ -136,7 +140,18 @@ conflicts, and include audit rows in physical usage reporting.
 | Cursor, deletion, recovery | Cursor HMAC binds owner/feed/filter/epoch; snapshot reads lock metadata against deletion; recovery reapplies external deletion receipts before service resumes ([protocol](../src/protocol.mjs), `createCursor`; [MySQL](../src/repository.mysql.mjs), lines 1054–1157; [recovery](../src/restore-recovery.mjs), lines 101–186). Focused snapshot tests passed. | Operator receipt completeness is an external assertion; a compromised operator or an incomplete bundle cannot be proved complete by this package. Encrypted backups retain deleted bytes until their documented expiry. |
 | Package surface | Browser-conditioned exports select browser-safe root/client/protocol; server and raw repository subpaths are explicit ([manifest](../package.json)). Existing pack evidence covers import/require/browser/declarations. | No fresh packed-artifact audit or external dependency advisory query was performed. |
 
-## Disposition and remaining review
+## Subsequent disposition — 28 October 2026
+
+The findings above retain their original dated evidence. All three were
+remediated and their fix beads closed: `mbs-bij.1` (idempotency), `mbs-bij.2`
+(snapshots), `mbs-bij.3` (MySQL audit). Their closure records 349 passing
+dedicated-MySQL tests, no skips, plus types/lint/build/pack checks at that
+revision. Current public 0.1.2 and its dependency audits are recorded in
+[release evidence](RELEASE_EVIDENCE.md). Neither that remediation nor the
+maintainer audit supplies the independent sign-off still tracked separately
+by `mbs-8g5.5.2.4`. No incident or fresh full-suite result is inferred.
+
+## Original disposition and remaining review
 
 F1 and F2 are release-blocking for a publicly available multi-tenant service
 under the package's own finite-capacity contract. F3 is a contract discrepancy
